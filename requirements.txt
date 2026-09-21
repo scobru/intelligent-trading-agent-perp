@@ -1,0 +1,14 @@
+ccxt>=4.1.0
+pandas>=2.0.0
+numpy>=1.24.0
+ta>=0.11.0
+tradingview-screener
+prophet
+yfinance
+matplotlib
+python-dotenv
+eth-account
+toonify
+openai>=1.0.0
+plotly
+requests>=2.31.0

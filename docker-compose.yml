@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  intelligent-trading-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: intelligent-trading-agent
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    env_file:
+      - .env
+    environment:
+      - INTERVAL_SECONDS=900
+      - SYNFUTURES_SERVICE_URL=http://localhost:3100
+      - SQLITE_DB_PATH=/app/data/trading_agent.db
+    volumes:
+      - agent-data:/app/data
+
+volumes:
+  agent-data:
