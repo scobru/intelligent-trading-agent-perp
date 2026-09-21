@@ -21,6 +21,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <title>Intelligent Trading Agent - Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Chart.js per la curva di equity -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- TradingView Advanced Chart Widget -->
+    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
     <style>
         :root {
             --bg: #0b0f19;
@@ -49,6 +53,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             margin-bottom: 24px;
             padding-bottom: 16px;
             border-bottom: 1px solid var(--surface-border);
+            flex-wrap: wrap;
+            gap: 16px;
         }
         .header h1 { font-size: 24px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
         .badge {
@@ -68,9 +74,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             border-radius: 8px;
             font-weight: 600;
             cursor: pointer;
-            transition: opacity 0.2s;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 10px rgba(59, 130, 246, 0.3);
         }
-        .btn:hover { opacity: 0.9; }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
         .grid-stats {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -87,6 +94,69 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         .card h3 { font-size: 13px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
         .card .value { font-size: 26px; font-weight: 700; }
         .card .subtext { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+        /* Chart Controls & Tabs */
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .tab-group {
+            display: flex;
+            background: #090d16;
+            padding: 4px;
+            border-radius: 8px;
+            border: 1px solid var(--surface-border);
+            gap: 4px;
+        }
+        .tab-btn {
+            background: transparent;
+            color: var(--text-muted);
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .tab-btn.active {
+            background: var(--surface-border);
+            color: #ffffff;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+        }
+        .tab-btn:hover:not(.active) {
+            color: #ffffff;
+        }
+        .pill-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .pill-btn {
+            background: #182238;
+            color: var(--text-muted);
+            border: 1px solid var(--surface-border);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .pill-btn.active {
+            background: rgba(59, 130, 246, 0.2);
+            color: #60a5fa;
+            border-color: #3b82f6;
+        }
+        .pill-btn:hover:not(.active) {
+            border-color: #4b5563;
+            color: #f3f4f6;
+        }
+
         .main-grid {
             display: grid;
             grid-template-columns: 2fr 1fr;
@@ -138,6 +208,32 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <h3>Ultima Operazione</h3>
             <div class="value" id="last-op">--</div>
             <div class="subtext" id="last-op-time">Nessuna operazione registrata</div>
+        </div>
+    </div>
+
+    <!-- SEZIONE GRAFICI INTERATTIVI (MARKET & EQUITY) -->
+    <div class="card" style="margin-bottom: 24px;">
+        <div class="chart-header">
+            <div class="tab-group">
+                <button class="tab-btn active" id="tab-market-btn" onclick="switchTab('market')">📈 Grafico Mercato Live</button>
+                <button class="tab-btn" id="tab-equity-btn" onclick="switchTab('equity')">💼 Storico Capitale & Saldo</button>
+            </div>
+            <div class="pill-group" id="symbol-pills">
+                <span style="font-size: 12px; color: var(--text-muted);">Asset:</span>
+                <button class="pill-btn active" onclick="changeTvSymbol('BINANCE:ETHUSDC', this)">ETH/USDC</button>
+                <button class="pill-btn" onclick="changeTvSymbol('BINANCE:BTCUSDC', this)">BTC/USDC</button>
+                <button class="pill-btn" onclick="changeTvSymbol('BINANCE:SOLUSDC', this)">SOL/USDC</button>
+            </div>
+        </div>
+
+        <!-- 1. TradingView Live Market Chart -->
+        <div id="market-chart-view" style="height: 480px; width: 100%; border-radius: 8px; overflow: hidden; background: #0c101c;">
+            <div id="tradingview_widget" style="height: 100%; width: 100%;"></div>
+        </div>
+
+        <!-- 2. Chart.js Equity / Balance Curve -->
+        <div id="equity-chart-view" style="display: none; height: 480px; width: 100%; position: relative; padding: 10px 10px 20px 10px;">
+            <canvas id="balanceChart"></canvas>
         </div>
     </div>
 
@@ -203,12 +299,169 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </div>
 
     <script>
+        let currentTvSymbol = 'BINANCE:ETHUSDC';
+        let balanceChartInstance = null;
+        let lastHistoryData = [];
+        let currentBalanceVal = 0;
+
+        // TradingView Initialization
+        function initTradingView(symbol) {
+            if (typeof TradingView === 'undefined') {
+                console.warn('TradingView library not loaded yet');
+                return;
+            }
+            document.getElementById('tradingview_widget').innerHTML = '';
+            new TradingView.widget({
+                "autosize": true,
+                "symbol": symbol,
+                "interval": "15",
+                "timezone": "Etc/UTC",
+                "theme": "dark",
+                "style": "1",
+                "locale": "it",
+                "toolbar_bg": "#131b2e",
+                "enable_publishing": false,
+                "hide_top_toolbar": false,
+                "hide_legend": false,
+                "save_image": false,
+                "container_id": "tradingview_widget"
+            });
+        }
+
+        function changeTvSymbol(symbol, btnElement) {
+            currentTvSymbol = symbol;
+            document.querySelectorAll('#symbol-pills .pill-btn').forEach(b => b.classList.remove('active'));
+            if (btnElement) btnElement.classList.add('active');
+            initTradingView(symbol);
+        }
+
+        function switchTab(tab) {
+            const marketView = document.getElementById('market-chart-view');
+            const equityView = document.getElementById('equity-chart-view');
+            const pills = document.getElementById('symbol-pills');
+            const tabMarketBtn = document.getElementById('tab-market-btn');
+            const tabEquityBtn = document.getElementById('tab-equity-btn');
+
+            if (tab === 'market') {
+                marketView.style.display = 'block';
+                equityView.style.display = 'none';
+                pills.style.display = 'flex';
+                tabMarketBtn.classList.add('active');
+                tabEquityBtn.classList.remove('active');
+                initTradingView(currentTvSymbol);
+            } else {
+                marketView.style.display = 'none';
+                equityView.style.display = 'block';
+                pills.style.display = 'none';
+                tabMarketBtn.classList.remove('active');
+                tabEquityBtn.classList.add('active');
+                renderBalanceChart(lastHistoryData, currentBalanceVal);
+            }
+        }
+
+        function renderBalanceChart(history, currentBal) {
+            const canvas = document.getElementById('balanceChart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+
+            let labels = [];
+            let values = [];
+
+            if (history && history.length > 0) {
+                labels = history.map(h => {
+                    const d = new Date(h.time);
+                    return isNaN(d.getTime()) ? h.time : (d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+                });
+                values = history.map(h => h.balance);
+            } else {
+                labels = ['Avvio', 'Adesso'];
+                values = [currentBal, currentBal];
+            }
+
+            const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+            gradient.addColorStop(0, 'rgba(59, 130, 246, 0.4)');
+            gradient.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+
+            if (balanceChartInstance) {
+                balanceChartInstance.data.labels = labels;
+                balanceChartInstance.data.datasets[0].data = values;
+                balanceChartInstance.update();
+                balanceChartInstance.resize();
+                return;
+            }
+
+            balanceChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Saldo Conto ($ USDC)',
+                        data: values,
+                        borderColor: '#3b82f6',
+                        borderWidth: 3,
+                        backgroundColor: gradient,
+                        fill: true,
+                        tension: 0.3,
+                        pointBackgroundColor: '#60a5fa',
+                        pointBorderColor: '#1e2942',
+                        pointBorderWidth: 2,
+                        pointRadius: 4,
+                        pointHoverRadius: 7
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            labels: { color: '#9ca3af', font: { family: 'Inter', size: 12 } }
+                        },
+                        tooltip: {
+                            backgroundColor: '#131b2e',
+                            titleColor: '#93c5fd',
+                            bodyColor: '#f3f4f6',
+                            borderColor: '#3b82f6',
+                            borderWidth: 1,
+                            padding: 12,
+                            callbacks: {
+                                label: function(context) {
+                                    return ' Saldo: $' + context.parsed.y.toFixed(2);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(30, 41, 66, 0.6)' },
+                            ticks: { color: '#9ca3af', font: { family: 'Inter', size: 11 } }
+                        },
+                        y: {
+                            grid: { color: 'rgba(30, 41, 66, 0.6)' },
+                            ticks: {
+                                color: '#9ca3af',
+                                font: { family: 'Inter', size: 11 },
+                                callback: function(val) { return '$' + val; }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
         async function fetchStatus() {
             try {
                 const res = await fetch('/api/status');
                 const data = await res.json();
                 
-                document.getElementById('balance').textContent = '$' + (data.balance || 0).toFixed(2);
+                currentBalanceVal = data.balance || 0;
+                lastHistoryData = data.balance_history || [];
+
+                document.getElementById('balance').textContent = '$' + currentBalanceVal.toFixed(2);
                 document.getElementById('open-positions-count').textContent = data.positions ? data.positions.length : 0;
                 
                 if (data.sentiment) {
@@ -268,6 +521,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     document.getElementById('operations-table').innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Nessuna operazione registrata.</td></tr>';
                 }
 
+                // Aggiorna grafico bilancio se visibile
+                if (document.getElementById('equity-chart-view').style.display !== 'none') {
+                    renderBalanceChart(lastHistoryData, currentBalanceVal);
+                }
+
             } catch (err) {
                 console.error('Errore aggiornamento dashboard:', err);
             }
@@ -285,8 +543,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
-        fetchStatus();
-        setInterval(fetchStatus, 10000);
+        // Init page
+        window.addEventListener('DOMContentLoaded', () => {
+            initTradingView(currentTvSymbol);
+            fetchStatus();
+            setInterval(fetchStatus, 10000);
+        });
     </script>
 </body>
 </html>
@@ -298,6 +560,7 @@ def get_db_data():
         "positions": [],
         "sentiment": {"value": 50, "classification": "Neutral"},
         "operations": [],
+        "balance_history": [],
         "errors": []
     }
     if not os.path.exists(SQLITE_DB_PATH):
@@ -329,6 +592,14 @@ def get_db_data():
                     "leverage": row["leverage"]
                 })
             data["positions"] = positions
+
+        # Storico saldo (ultimi 50 snapshot in ordine cronologico)
+        cur.execute("SELECT created_at, balance_usd FROM account_snapshots ORDER BY id DESC LIMIT 50;")
+        rows = cur.fetchall()
+        data["balance_history"] = [
+            {"time": r["created_at"], "balance": float(r["balance_usd"])}
+            for r in reversed(rows)
+        ]
 
         # Ultimo sentiment
         cur.execute("SELECT * FROM sentiment_contexts ORDER BY id DESC LIMIT 1;")
