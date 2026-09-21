@@ -6,7 +6,7 @@ echo " Starting Intelligent Trading Agent on CapRover / Docker"
 echo "========================================================"
 
 # 1. Start SynFutures Node.js Microservice in background
-echo "[1/3] Starting SynFutures Node.js microservice..."
+echo "[1/4] Starting SynFutures Node.js microservice on port 3100..."
 cd /app/synfutures-service
 if [ -d "dist" ]; then
     node dist/index.js &
@@ -17,7 +17,7 @@ SERVICE_PID=$!
 cd /app
 
 # 2. Wait for synfutures-service /health endpoint
-echo "[2/3] Waiting for SynFutures microservice on http://localhost:3100/health..."
+echo "[2/4] Waiting for SynFutures microservice on http://localhost:3100/health..."
 MAX_TRIES=30
 COUNT=0
 until curl -s http://localhost:3100/health > /dev/null 2>&1 || [ $COUNT -eq $MAX_TRIES ]; do
@@ -31,24 +31,31 @@ else
     echo "✅ SynFutures microservice is ready!"
 fi
 
+# 3. Start Web Dashboard on port 3000 (accessible via CapRover HTTP)
+DASHBOARD_PORT="${PORT:-3000}"
+echo "[3/4] Starting Web Dashboard on port ${DASHBOARD_PORT}..."
+python dashboard.py &
+DASHBOARD_PID=$!
+
 # Cleanup on exit
 cleanup() {
     echo "Stopping background services..."
     kill $SERVICE_PID 2>/dev/null || true
+    kill $DASHBOARD_PID 2>/dev/null || true
     exit 0
 }
 trap cleanup SIGINT SIGTERM
 
-# 3. Execution loop for Python Trading Agent
+# 4. Execution loop for Python Trading Agent
 INTERVAL="${INTERVAL_SECONDS:-900}"  # Default: 15 minutes (900 seconds)
 
-echo "[3/3] Starting trading agent execution loop (Interval: ${INTERVAL}s)..."
+echo "[4/4] Starting trading agent execution loop (Interval: ${INTERVAL}s)..."
 
 if [ "${RUN_ONCE}" = "true" ]; then
     echo "Single run requested (RUN_ONCE=true)..."
     python main.py
-    echo "Single execution finished. Keeping container alive for microservice / health checks."
-    wait $SERVICE_PID
+    echo "Single execution finished. Keeping container alive for dashboard and microservice."
+    wait $DASHBOARD_PID
 else
     while true; do
         echo ""

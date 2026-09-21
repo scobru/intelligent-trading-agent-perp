@@ -8,6 +8,7 @@ services:
     container_name: intelligent-trading-agent
     restart: unless-stopped
     ports:
+      - "3000:3000"
       - "3100:3100"
     env_file:
       - .env
