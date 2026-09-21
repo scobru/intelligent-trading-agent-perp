@@ -93,6 +93,20 @@ try:
     except Exception as db_err:
         print(f"[db_utils] Nota DB operazione non salvata: {db_err}")
 
+    # Notifica su Telegram (se configurato)
+    try:
+        from telegram_bot import notify_cycle_result
+        notify_cycle_result(
+            decision=out,
+            execution_result=execution_result,
+            account_status=account_status,
+            sentiment=sentiment_json,
+            indicators=indicators_json,
+            forecasts=forecasts_json,
+        )
+    except Exception as tg_err:
+        print(f"[telegram] Nota notifica non inviata: {tg_err}")
+
     # Aggiorna e salva lo stato corrente
     account_status = bot.get_account_status()
     with open("account_status_old.json", "w") as f:
@@ -107,6 +121,12 @@ try:
     print("✅ Ciclo di trading completato con successo.")
 
 except Exception as e:
+    try:
+        from telegram_bot import notify_error
+        notify_error(str(e))
+    except Exception:
+        pass
+
     try:
         db_utils.log_error(
             e,

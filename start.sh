@@ -39,11 +39,20 @@ echo "[3/4] Starting Web Dashboard on port ${DASHBOARD_PORT}..."
 python dashboard.py &
 DASHBOARD_PID=$!
 
+# 3b. Start Telegram Bot Listener if configured
+TELEGRAM_PID=""
+if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+    echo "📱 Starting Telegram Bot listener..."
+    python telegram_bot.py &
+    TELEGRAM_PID=$!
+fi
+
 # Cleanup on exit
 cleanup() {
     echo "Stopping background services..."
     kill $SERVICE_PID 2>/dev/null || true
     kill $DASHBOARD_PID 2>/dev/null || true
+    [ -n "$TELEGRAM_PID" ] && kill $TELEGRAM_PID 2>/dev/null || true
     exit 0
 }
 trap cleanup SIGINT SIGTERM
