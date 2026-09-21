@@ -16,7 +16,7 @@ dotenv.config(); // Loads .env from current working directory
 dotenv.config({ path: path.resolve(__dirname, '../../.env') }); // Falls back to root .env if running from subdirectory
 
 export const app = express();
-const PORT = process.env.PORT || 3100;
+const PORT = process.env.SYNFUTURES_PORT || 3100;
 
 // Middleware
 const allowedOrigins = [(process.env.CORS_ORIGIN || 'http://localhost')];

@@ -5,9 +5,11 @@ echo "========================================================"
 echo " Starting Intelligent Trading Agent on CapRover / Docker"
 echo "========================================================"
 
-# 1. Start SynFutures Node.js Microservice in background
+# 1. Start SynFutures Node.js Microservice in background on port 3100
 echo "[1/4] Starting SynFutures Node.js microservice on port 3100..."
 cd /app/synfutures-service
+export SYNFUTURES_PORT=3100
+export SYNFUTURES_SERVICE_URL="http://localhost:3100"
 if [ -d "dist" ]; then
     node dist/index.js &
 else

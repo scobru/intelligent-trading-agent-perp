@@ -2,7 +2,9 @@ FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PORT=3000
+    PORT=3000 \
+    SYNFUTURES_PORT=3100 \
+    SYNFUTURES_SERVICE_URL=http://localhost:3100
 
 # Install system dependencies, SQLite3, git, build tools and Node.js 20
 RUN apt-get update && apt-get install -y --no-install-recommends \
