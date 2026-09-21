@@ -2,7 +2,6 @@ FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    NODE_ENV=production \
     PORT=3100
 
 # Install system dependencies, SQLite3, git, build tools and Node.js 20
@@ -18,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
     && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
     && apt-get update && apt-get install -y nodejs \
+    && npm install -g typescript ts-node \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -25,7 +25,7 @@ WORKDIR /app
 # 1. Install and build Node.js SynFutures microservice
 WORKDIR /app/synfutures-service
 COPY synfutures-service/package*.json synfutures-service/tsconfig.json ./
-RUN npm install
+RUN npm install --include=dev
 COPY synfutures-service/src ./src
 RUN npm run build
 
