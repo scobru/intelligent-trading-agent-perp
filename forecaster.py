@@ -45,7 +45,7 @@ class CryptoForecaster:
             freq = "15min"
         else:
             df = self._fetch_candles(coin, "1h", limit=500)
-            freq = "H"
+            freq = "h"
 
         last_price = df["y"].iloc[-1]
 
