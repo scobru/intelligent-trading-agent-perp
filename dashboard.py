@@ -14,6 +14,19 @@ load_dotenv()
 PORT = int(os.getenv("DASHBOARD_PORT", os.getenv("PORT", "3000")))
 SQLITE_DB_PATH = os.getenv("SQLITE_DB_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "trading_agent.db"))
 
+# Asset statici serviti dalla dashboard (allowlist esplicita: nessun path
+# arbitrario arriva al filesystem)
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+STATIC_ROUTES = {
+    "/favicon.ico": ("favicon.ico", "image/x-icon"),
+    "/static/icon.svg": ("icon.svg", "image/svg+xml"),
+    "/static/icon-small.svg": ("icon-small.svg", "image/svg+xml"),
+    "/static/icon-192.png": ("icon-192.png", "image/png"),
+    "/static/icon-512.png": ("icon-512.png", "image/png"),
+    "/static/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"),
+    "/static/site.webmanifest": ("site.webmanifest", "application/manifest+json"),
+}
+
 # Cache in-memory per dati live (60s)
 _LIVE_CACHE = {
     "sentiment": None,
@@ -28,6 +41,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Intelligent Trading Agent - Dashboard</title>
+    <link rel="icon" href="/favicon.ico" sizes="48x48">
+    <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+    <link rel="manifest" href="/static/site.webmanifest">
+    <meta name="theme-color" content="#3b82f6">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <!-- Chart.js per la curva di equity -->
@@ -244,7 +262,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
     <div class="header">
         <div>
-            <h1>🤖 Intelligent Trading Agent <span class="badge badge-live">● ONLINE</span></h1>
+            <h1><img src="/static/icon.svg" alt="" width="30" height="30" style="border-radius: 7px;"> Intelligent Trading Agent <span class="badge badge-live">● ONLINE</span></h1>
             <p style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">SynFutures V3 (Base) • OpenRouter (openrouter/free) • SQLite</p>
         </div>
         <button class="btn" onclick="triggerRun()">⚡ Esegui Ciclo Ora</button>
@@ -1000,6 +1018,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.end_headers()
             db_data = get_db_data()
             self.wfile.write(json.dumps(db_data).encode("utf-8"))
+        elif parsed.path in STATIC_ROUTES:
+            filename, content_type = STATIC_ROUTES[parsed.path]
+            try:
+                with open(os.path.join(STATIC_DIR, filename), "rb") as fh:
+                    payload = fh.read()
+            except OSError:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
         elif parsed.path == "/health":
             self.send_response(200)
             self.send_header("Content-Type", "application/json")

@@ -1,4 +1,8 @@
+<img src="static/icon.svg" alt="" width="88" height="88" align="left">
+
 # Intelligent Trading Agent (SynFutures & OpenRouter)
+
+<br clear="left">
 
 ![Trading Agent](/img.jpg)
 
@@ -145,6 +149,24 @@ docker compose logs -f
 
 ---
 
+
+## 🎨 Icona del progetto
+
+Gli asset sono in `static/`:
+
+| File | Uso |
+|------|-----|
+| `icon.svg` | icona principale (vettoriale), logo in dashboard e README |
+| `icon-small.svg` | variante semplificata, sorgente delle dimensioni piccole |
+| `favicon.ico` | favicon multi-risoluzione (16, 32, 48 px) |
+| `icon-192.png`, `icon-512.png` | PWA e condivisioni |
+| `apple-touch-icon.png` | schermata home iOS |
+| `site.webmanifest` | manifest PWA |
+
+Le sorgenti sono gli SVG; i raster si rigenerano con `python tools/generate_icons.py`
+(richiede `pip install cairosvg pillow`, dipendenze di solo sviluppo).
+
+---
+
 ## 📜 Licenza
 Distribuito sotto licenza MIT. Ispirato ad Alpha Arena e Rizzo AI Academy.
-
