@@ -631,23 +631,38 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 const fcContainer = document.getElementById('forecasts-container');
                 if (data.forecasts && data.forecasts.length > 0) {
                     fcContainer.innerHTML = data.forecasts.map(f => {
-                        const delta = f.change_pct || 0;
-                        const isPos = delta >= 0;
+                        // Una previsione fallita arriva con valori null: va mostrata
+                        // come "N/D", non come $0 (che sembrerebbe un prezzo reale).
+                        const hasPrediction = f.prediction !== null && f.prediction !== undefined;
+                        const money = v => (v === null || v === undefined)
+                            ? 'N/D'
+                            : '$' + Number(v).toLocaleString();
+                        const delta = hasPrediction ? (f.change_pct || 0) : null;
+                        const isPos = delta !== null && delta >= 0;
+                        const deltaClass = delta === null
+                            ? ''
+                            : (isPos ? 'forecast-delta-pos' : 'forecast-delta-neg');
+                        const deltaTxt = delta === null
+                            ? 'N/D'
+                            : `${isPos ? '+' : ''}${delta.toFixed(2)}%`;
+                        const boundsTxt = hasPrediction
+                            ? `[${Number(f.lower_bound || 0).toFixed(0)} - ${Number(f.upper_bound || 0).toFixed(0)}]`
+                            : 'previsione non disponibile';
                         return `
                             <div class="forecast-item">
                                 <div>
                                     <strong style="font-size: 13px; color: #93c5fd;">${f.ticker}</strong>
                                     <span style="font-size: 11px; color: var(--text-muted); margin-left: 4px;">(${f.timeframe})</span>
                                     <div style="font-size: 11px; color: #cbd5e1; margin-top: 2px;">
-                                        $${(f.last_price || 0).toLocaleString()} ➔ <strong>$${(f.prediction || 0).toLocaleString()}</strong>
+                                        ${money(f.last_price)} ➔ <strong>${money(f.prediction)}</strong>
                                     </div>
                                 </div>
                                 <div style="text-align: right;">
-                                    <div class="${isPos ? 'forecast-delta-pos' : 'forecast-delta-neg'}">
-                                        ${isPos ? '+' : ''}${delta.toFixed(2)}%
+                                    <div class="${deltaClass}" style="${delta === null ? 'color: var(--text-muted); font-size: 13px; font-weight: 700;' : ''}">
+                                        ${deltaTxt}
                                     </div>
                                     <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">
-                                        [${(f.lower_bound || 0).toFixed(0)} - ${(f.upper_bound || 0).toFixed(0)}]
+                                        ${boundsTxt}
                                     </div>
                                 </div>
                             </div>

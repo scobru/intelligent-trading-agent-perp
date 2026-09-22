@@ -1,6 +1,6 @@
 from indicators import analyze_multiple_tickers
 from news_feed import fetch_latest_news
-from trading_agent import previsione_trading_agent
+from trading_agent import previsione_trading_agent, OPENROUTER_MODEL
 from utils import check_stop_loss
 from whalealert import format_whale_alerts_to_string
 from sentiment import get_sentiment
@@ -45,6 +45,10 @@ try:
 
     print("🔮 Calcolo previsioni con Prophet...")
     forecasts_txt, forecasts_json = get_crypto_forecasts()
+    if not forecasts_txt:
+        # Meglio dirlo esplicitamente all'LLM che passargli la stringa "None"
+        forecasts_txt = "Previsioni non disponibili in questo ciclo."
+        print("⚠️  Previsioni Prophet non disponibili: il modello deciderà senza forecast.")
 
     msg_info = f"""<indicatori>\n{indicators_txt}\n</indicatori>\n\n
     <news>\n{news_txt}</news>\n\n
@@ -71,7 +75,7 @@ try:
         system_prompt_template = f.read()
     system_prompt = system_prompt_template.format(portfolio_data, msg_info)
 
-    print("🤖 L'agente AI (OpenRouter openrouter/free) sta decidendo la sua azione...")
+    print(f"🤖 L'agente AI (OpenRouter {OPENROUTER_MODEL}) sta decidendo la sua azione...")
     out = previsione_trading_agent(system_prompt)
     print(f"   Segnale generato: {json.dumps(out, indent=2)}")
 
