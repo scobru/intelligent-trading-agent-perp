@@ -111,7 +111,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <div class="pills" id="symbol-pills" hidden>
       <button class="pill active" data-symbol="BINANCE:ETHUSDC">ETH</button>
       <button class="pill" data-symbol="BINANCE:BTCUSDC">BTC</button>
-      <button class="pill" data-symbol="BINANCE:SOLUSDC">SOL</button>
     </div>
   </div>
   <div class="chart-box tall" id="equity-view"><canvas id="equity"></canvas></div>
@@ -159,7 +158,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 </div>
 
 <section class="card section">
-  <div class="card-head"><h2>📐 Indicatori tecnici <small>BTC, ETH, SOL su 15m e 1h</small></h2></div>
+  <div class="card-head"><h2>📐 Indicatori tecnici <small>BTC ed ETH su 15m e 1h</small></h2></div>
   <div class="table-wrap"><table>
     <thead><tr><th>Ticker</th><th>Prezzo</th><th>RSI (7)</th><th>MACD</th><th>EMA 20</th><th>Pivot</th><th>S1</th><th>R1</th><th>Bias</th></tr></thead>
     <tbody id="indicators"></tbody>
@@ -440,7 +439,7 @@ def get_db_data():
                 except Exception:
                     pass
 
-        # 4. Indicatori tecnici (ultimi per ciascun ticker: BTC, ETH, SOL)
+        # 4. Indicatori tecnici (ultimi per ciascun ticker)
         cur.execute("""
             SELECT ticker, ts, price, ema20, macd, rsi_7, pp, s1, s2, r1, r2, funding_rate
             FROM indicators_contexts

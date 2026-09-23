@@ -39,8 +39,8 @@ try:
         )
 
     # Calcolo delle informazioni in input per Ticker: solo le coppie che
-    # esistono davvero come perpetual su SynFutures (es. SOL puo' mancare)
-    candidates = [t.strip().upper() for t in os.getenv("TRADING_TICKERS", "BTC,ETH,SOL").split(",") if t.strip()]
+    # esistono davvero come perpetual su SynFutures
+    candidates = [t.strip().upper() for t in os.getenv("TRADING_TICKERS", "BTC,ETH").split(",") if t.strip()]
     tickers = bot.filter_tradable(candidates)
     if not tickers:
         raise RuntimeError(f"Nessuno dei ticker {candidates} ha un perpetual su SynFutures")

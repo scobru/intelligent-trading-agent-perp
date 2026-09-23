@@ -33,7 +33,7 @@ client = OpenAI(
     api_key=OPENROUTER_API_KEY or "missing-openrouter-key",
 )
 
-DEFAULT_SYMBOLS = ["BTC", "ETH", "SOL"]
+DEFAULT_SYMBOLS = ["BTC", "ETH"]
 
 SYSTEM_RULES = """You are an expert crypto trading agent.
 Analyze the provided portfolio status and market indicators, then decide on a trading action.

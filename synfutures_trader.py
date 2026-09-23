@@ -106,7 +106,7 @@ class SynFuturesTrader:
         """
         Mercati perpetual realmente quotati su SynFutures: ticker -> simbolo
         dello strumento (es. {"BTC": "BTC-USDC-LINK"}). Serve a non chiedere
-        ordini su coppie che non esistono (es. SOL-USDC-LINK).
+        ordini su coppie che non esistono.
         Cache di 10 minuti; se il servizio non risponde restituisce {} e i
         chiamanti ripiegano sul comportamento precedente.
         """
@@ -336,7 +336,7 @@ class SynFuturesTrader:
             return {"status": "hold", "message": f"No action taken for {raw_symbol}."}
 
         # Coppia inesistente su SynFutures: scarta il segnale invece di far
-        # fallire il ciclo (prima: "Instrument SOL-USDC-LINK not found")
+        # fallire il ciclo con "Instrument ... not found"
         markets = self.get_tradable_markets()
         coin = self.denormalize_symbol(str(raw_symbol).strip().upper().replace("/", "-"))
         if op == "open" and markets and coin not in markets:
