@@ -98,6 +98,37 @@ class SynFuturesTrader:
     # ----------------------------------------------------------------------
     #                        NORMALIZZAZIONE SIMBOLI
     # ----------------------------------------------------------------------
+    # ----------------------------------------------------------------------
+    #                   WALLET (gas e USDC fuori dal Gate)
+    # ----------------------------------------------------------------------
+    USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+
+    def _rpc(self, method: str, params: list) -> Any:
+        url = os.getenv("BASE_RPC") or os.getenv("BASE_RPC_URL") or "https://mainnet.base.org"
+        resp = requests.post(url, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
+                             timeout=15)
+        resp.raise_for_status()
+        body = resp.json()
+        if body.get("error"):
+            raise RuntimeError(body["error"])
+        return body["result"]
+
+    def get_wallet_balances(self, address: str) -> Dict[str, Any]:
+        """
+        ETH (per il gas) e USDC liberi nel wallet del signer, letti da RPC.
+        Servono a sapere quando ricaricare: senza ETH le transazioni verso
+        SynFutures falliscono. Errori di rete -> dizionario vuoto.
+        """
+        out: Dict[str, Any] = {}
+        try:
+            out["wallet_eth_balance"] = int(self._rpc("eth_getBalance", [address, "latest"]), 16) / 1e18
+            data = "0x70a08231" + address.lower().replace("0x", "").rjust(64, "0")  # balanceOf(address)
+            raw = self._rpc("eth_call", [{"to": self.USDC_BASE, "data": data}, "latest"])
+            out["wallet_usdc_balance"] = int(raw, 16) / 1e6
+        except Exception as e:
+            logger.warning(f"⚠️ Saldo del wallet non disponibile: {e}")
+        return out
+
     # Expiry dei perpetual in SynFutures V3 (type(uint32).max)
     PERP_EXPIRY = "4294967295"
     MARKETS_TTL = 600
@@ -321,6 +352,8 @@ class SynFuturesTrader:
             "total_value_usd": round(total_value, 2),
             "open_positions": open_positions,
             "mode": "live",
+            "wallet_address": address,
+            **self.get_wallet_balances(address),
         }
 
     # ----------------------------------------------------------------------

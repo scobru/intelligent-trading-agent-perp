@@ -29,6 +29,10 @@ PORT = int(os.getenv("DASHBOARD_PORT", os.getenv("PORT", "3000")))
 SQLITE_DB_PATH = os.getenv("SQLITE_DB_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "trading_agent.db"))
 RUN_TOKEN = os.getenv("DASHBOARD_RUN_TOKEN", "")
 PAPER_TRADING = os.getenv("PAPER_TRADING", "false").strip().lower() in ("1", "true", "yes", "on")
+# Soglie dell'ETH per il gas nel wallet: sotto MIN il bot non riesce a
+# firmare, sotto WARN la dashboard e Telegram chiedono di ricaricare
+GAS_MIN_ETH = float(os.getenv("GAS_MIN_ETH", "0.0005"))
+GAS_WARN_ETH = float(os.getenv("GAS_WARN_ETH", "0.002"))
 
 # Asset statici serviti dalla dashboard (allowlist esplicita: nessun path
 # arbitrario arriva al filesystem)
@@ -68,11 +72,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <meta name="theme-color" content="#3b82f6">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/dashboard.css?v=2">
+<link rel="stylesheet" href="/static/dashboard.css?v=3">
 <style>:root { --primary: #3b82f6; --accent: #6366f1; }</style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://s3.tradingview.com/tv.js"></script>
-<script src="/static/dashboard.js?v=2"></script>
+<script src="/static/dashboard.js?v=3"></script>
 </head>
 <body>
 <header class="header">
@@ -93,6 +97,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   <div class="card-head"><h2>📝 Paper trading <small>conto virtuale, prezzi reali</small></h2></div>
   <div class="paper-grid" id="paper-grid"></div>
   <p class="note" id="paper-note"></p>
+</section>
+
+<section class="card wallet-bar" id="wallet-panel" hidden>
+  <div class="wallet-items" id="wallet-items"></div>
+  <p class="note" id="wallet-note" hidden></p>
 </section>
 
 <section class="stats">
@@ -375,6 +384,15 @@ def get_db_data():
             data["meta"]["updated_at"] = snap["created_at"]
             if data["meta"]["mode"] == "paper":
                 data["meta"]["paper"] = _paper_meta(payload)
+            if payload.get("wallet_eth_balance") is not None:
+                data["meta"]["wallet"] = {
+                    "address": payload.get("wallet_address"),
+                    "eth": payload.get("wallet_eth_balance"),
+                    "min_eth": GAS_MIN_ETH,
+                    "warn_eth": GAS_WARN_ETH,
+                    "extra": [["USDC nel wallet", f"${float(payload.get('wallet_usdc_balance') or 0):,.2f}"],
+                              ["Collaterale Gate", f"${float(payload.get('balance_usd') or 0):,.2f}"]],
+                }
             snapshot_id = snap["id"]
 
             # Posizioni associate
@@ -447,6 +465,10 @@ def get_db_data():
             ORDER BY ticker ASC;
         """)
         data["indicators"] = [dict(r) for r in cur.fetchall()]
+        wallet = data["meta"].get("wallet")
+        eth_px = next((i["price"] for i in data["indicators"] if i["ticker"] == "ETH" and i["price"]), None)
+        if wallet and eth_px:
+            wallet["eth_usd"] = float(wallet["eth"]) * float(eth_px)
 
         # 5. Previsioni Prophet AI (ultime per ciascun ticker e timeframe)
         cur.execute("""
