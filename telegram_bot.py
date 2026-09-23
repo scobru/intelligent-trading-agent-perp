@@ -108,6 +108,11 @@ def notify_cycle_result(
         lines.append("")
         label = "Collaterale virtuale" if account_status.get("paper_trading") else "Saldo Gate"
         lines.append(f"💰 <b>{label}:</b> ${float(balance):.2f} USDC")
+        eth = account_status.get("wallet_eth_balance")
+        if eth is not None and not account_status.get("paper_trading"):
+            warn = float(os.getenv("GAS_WARN_ETH", "0.002"))
+            flag = " ⚠️ <b>ricarica il wallet</b>" if eth < warn else ""
+            lines.append(f"⛽ <b>ETH per il gas:</b> {eth:.5f}{flag}")
         if account_status.get("total_value_usd") is not None:
             lines.append(f"💼 <b>Valore totale:</b> ${float(account_status['total_value_usd']):.2f}")
         lines.append(f"📈 <b>Posizioni Aperte:</b> {len(positions)}")
