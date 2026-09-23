@@ -89,6 +89,10 @@ def notify_cycle_result(
         action_title,
     ]
 
+    if account_status and account_status.get("paper_trading"):
+        pnl = account_status.get("pnl_since_start_usd", 0.0)
+        lines.append(f"📝 <i>PAPER TRADING — P&amp;L strategia ${pnl:+.2f}</i>")
+
     if op in ["OPEN", "CLOSE"]:
         lines.append(f"📊 <b>Allocazione:</b> {float(portion)*100:.0f}%  |  <b>Leva:</b> {leverage}")
         if execution_result:
@@ -102,7 +106,10 @@ def notify_cycle_result(
         balance = account_status.get("balance_usd", 0.0)
         positions = account_status.get("open_positions", [])
         lines.append("")
-        lines.append(f"💰 <b>Saldo Gate:</b> ${float(balance):.2f} USDC")
+        label = "Collaterale virtuale" if account_status.get("paper_trading") else "Saldo Gate"
+        lines.append(f"💰 <b>{label}:</b> ${float(balance):.2f} USDC")
+        if account_status.get("total_value_usd") is not None:
+            lines.append(f"💼 <b>Valore totale:</b> ${float(account_status['total_value_usd']):.2f}")
         lines.append(f"📈 <b>Posizioni Aperte:</b> {len(positions)}")
 
     # Sentiment
