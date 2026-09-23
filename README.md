@@ -147,6 +147,7 @@ docker compose logs -f
 ## 🛡️ Gestione del Rischio
 - Ogni operazione include un calcolo dinamico del margine in base alla frazione di capitale allocata (`target_portion_of_balance`).
 - Verifica automatica del notional minimo richiesto su Base (~$70) prima dell'invio a SynFutures.
+- Solo coppie esistenti: a ogni ciclo i ticker di `TRADING_TICKERS` (default `BTC,ETH,SOL`) vengono confrontati con gli strumenti perpetual di SynFutures (`/instruments`); quelli assenti sono esclusi da analisi, prompt e ordini, e un segnale su una coppia non quotata diventa `hold`/`rejected` invece di un errore.
 - Tracciamento locale degli Stop Loss tramite `utils.py` e `account_status_old.json`.
 
 ---
