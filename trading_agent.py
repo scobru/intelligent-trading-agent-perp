@@ -58,6 +58,15 @@ def build_system_rules(symbols=None) -> str:
         symbols_enum=" | ".join(f'"{s}"' for s in symbols),
     )
 
+_DIRECTION_ALIASES = {"long": "long", "buy": "long", "bull": "long", "bullish": "long", "up": "long",
+                      "short": "short", "sell": "short", "bear": "short", "bearish": "short", "down": "short"}
+
+
+def normalize_direction(value):
+    """'LONG', 'Buy', ' long ' -> 'long'; valori non riconosciuti (None, 'none', '') -> None."""
+    return _DIRECTION_ALIASES.get(str(value or "").strip().lower())
+
+
 def _clean_and_parse_json(text: str, symbols=None) -> dict:
     """Extract and parse JSON safely from model response."""
     if not text or not text.strip():
@@ -82,8 +91,8 @@ def _clean_and_parse_json(text: str, symbols=None) -> dict:
             raise ValueError(f"Could not parse valid JSON from response: {text}")
             
     # Validate and normalize essential fields
-    if "operation" not in data:
-        data["operation"] = "hold"
+    op = str(data.get("operation") or "hold").strip().lower()
+    data["operation"] = op if op in ("open", "close", "hold") else "hold"
     symbols = [s.upper() for s in (symbols or DEFAULT_SYMBOLS)]
     if not isinstance(data.get("symbol"), str) or not data["symbol"].strip():
         data["symbol"] = symbols[0]
@@ -94,8 +103,15 @@ def _clean_and_parse_json(text: str, symbols=None) -> dict:
                           f"Segnale originale: {data.get('reason', '')}")[:300]
         data["operation"] = "hold"
         data["symbol"] = symbols[0]
-    if "direction" not in data:
-        data["direction"] = "long"
+    # I modelli free a volte rispondono "LONG", "buy", "none" o null: prima
+    # questo faceva fallire il ciclo con "direction must be 'long' or 'short'"
+    direction = normalize_direction(data.get("direction"))
+    if direction is None and data["operation"] == "open":
+        data["reason"] = (f"Direzione non valida ({data.get('direction')!r}): nessun ordine aperto. "
+                          f"Segnale originale: {data.get('reason', '')}")[:300]
+        data["operation"] = "hold"
+    # per hold e close la direzione non serve: "long" e' solo un segnaposto
+    data["direction"] = direction or "long"
     if "target_portion_of_balance" not in data:
         data["target_portion_of_balance"] = 0.0
     if "leverage" not in data:

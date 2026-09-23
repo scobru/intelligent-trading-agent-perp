@@ -188,7 +188,6 @@ class SynFuturesTrader:
         required_fields = [
             "operation",
             "symbol",
-            "direction",
             "target_portion_of_balance",
             "leverage",
             "reason",
@@ -200,10 +199,16 @@ class SynFuturesTrader:
         if not isinstance(order_json["symbol"], str) or not order_json["symbol"].strip():
             raise ValueError("symbol must be a non-empty string")
 
+        order_json["operation"] = str(order_json["operation"] or "").strip().lower()
         if order_json["operation"] not in ("open", "close", "hold"):
             raise ValueError("operation must be 'open', 'close', or 'hold'")
 
-        if order_json["direction"] not in ("long", "short"):
+        # La direzione conta solo per aprire: close chiude la posizione del
+        # simbolo qualunque sia il lato, hold non fa nulla
+        direction = str(order_json.get("direction") or "").strip().lower()
+        if direction in ("long", "short"):
+            order_json["direction"] = direction
+        elif order_json["operation"] == "open":
             raise ValueError("direction must be 'long' or 'short'")
 
         try:
