@@ -36,6 +36,8 @@ intelligent-trading-agent/
 │   └── tsconfig.json
 ├── main.py                   # Script principale: pipeline dati -> OpenRouter -> esecuzione SynFutures
 ├── synfutures_trader.py      # Adapter di trading per SynFutures (sostituto di HyperLiquidTrader)
+├── paper.py                  # Conto perpetual virtuale per il paper trading
+├── dashboard.py              # Dashboard web (stile in static/dashboard.css|js)
 ├── trading_agent.py          # Modulo decisionale LLM con OpenRouter (openrouter/free)
 ├── indicators.py             # Analisi tecnica crypto a 15m con CCXT e TA
 ├── forecaster.py             # Previsioni di prezzo con Prophet
@@ -149,6 +151,44 @@ docker compose logs -f
 
 ---
 
+## 📝 Paper trading
+
+Con `PAPER_TRADING=true` l'agente opera su un **conto perpetual virtuale**
+(`PAPER_START_USDC`, default $1000) con **prezzi di mercato reali**: gli ordini
+vengono eseguiti davvero contro il collaterale finto, quindi si vedono P&L,
+stop loss e liquidazioni lavorare senza capitale su SynFutures.
+
+| Reale | Simulato |
+|-------|----------|
+| prezzi (Binance, fallback Kraken), decisioni del modello, dimensionamento e nozionale minimo | collaterale sul Gate, riempimento (± `PAPER_SLIPPAGE_BPS`), fee (`PAPER_FEE_BPS`), stop loss e liquidazioni controllati a ogni ciclo |
+
+In paper non servono wallet, chiave privata né il microservizio
+`synfutures-service` (`start.sh` non lo avvia). Funding rate e prezzo
+dell'oracolo SynFutures non sono simulati. Lo stato vive in
+`paper_account.json` accanto al database (sul volume persistente): per
+ricominciare da zero cancellalo.
+
+---
+
+## 🖥️ Dashboard
+
+Su `http://localhost:3000`. Il pulsante "Esegui ciclo ora" è disattivato
+finché non imposti `DASHBOARD_RUN_TOKEN`: la dashboard non ha login e un ciclo
+può firmare transazioni. Il browser chiede il token una volta e lo ricorda.
+
+### Dashboard coerente fra i tre agenti
+
+Le dashboard di `intelligent-trading-agent`, `-degen` e `-yield` condividono lo
+stesso design system: `static/dashboard.css` e `static/dashboard.js` sono
+**identici nei tre repository** (se li modifichi, copiali negli altri due).
+Ogni pagina ha la stessa struttura: header con badge di modalità
+(`LIVE` / `PAPER` / `DRY-RUN`), pannello paper trading, KPI, andamento del
+capitale, posizioni e ultima decisione AI, sezioni specifiche del bot, storico
+operazioni ed errori. Cambia solo il colore d'accento (blu, arancio, verde)
+e l'icona.
+
+---
+
 
 ## 🎨 Icona del progetto
 
@@ -162,6 +202,7 @@ Gli asset sono in `static/`:
 | `icon-192.png`, `icon-512.png` | PWA e condivisioni |
 | `apple-touch-icon.png` | schermata home iOS |
 | `site.webmanifest` | manifest PWA |
+| `dashboard.css`, `dashboard.js` | design system condiviso con i bot degen e yield |
 
 Le sorgenti sono gli SVG; i raster si rigenerano con `python tools/generate_icons.py`
 (richiede `pip install cairosvg pillow`, dipendenze di solo sviluppo).

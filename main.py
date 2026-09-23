@@ -6,6 +6,7 @@ from whalealert import format_whale_alerts_to_string
 from sentiment import get_sentiment
 from forecaster import get_crypto_forecasts
 from synfutures_trader import SynFuturesTrader
+from paper import PAPER_TRADING, PAPER_START_USDC, PaperSynFuturesTrader
 import os
 import json
 import db_utils
@@ -19,18 +20,23 @@ SYNFUTURES_PRIVATE_KEY = os.getenv("SYNFUTURES_PRIVATE_KEY") or os.getenv("PRIVA
 SYNFUTURES_SERVICE_URL = os.getenv("SYNFUTURES_SERVICE_URL", "http://localhost:3100")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-if not SYNFUTURES_WALLET:
+if not SYNFUTURES_WALLET and not PAPER_TRADING:
     raise RuntimeError("SYNFUTURES_WALLET (o WALLET_ADDRESS) mancante nel .env")
 if not OPENROUTER_API_KEY:
     raise RuntimeError("OPENROUTER_API_KEY mancante nel .env")
 
 try:
-    print(f"🚀 Avvio Intelligent Trading Agent per SynFutures (Wallet: {SYNFUTURES_WALLET})")
-    bot = SynFuturesTrader(
-        secret_key=SYNFUTURES_PRIVATE_KEY,
-        account_address=SYNFUTURES_WALLET,
-        service_url=SYNFUTURES_SERVICE_URL,
-    )
+    if PAPER_TRADING:
+        print(f"📝 PAPER TRADING: conto perpetual virtuale, prezzi reali. "
+              f"Capitale iniziale ${PAPER_START_USDC:.2f}.")
+        bot = PaperSynFuturesTrader()
+    else:
+        print(f"🚀 Avvio Intelligent Trading Agent per SynFutures (Wallet: {SYNFUTURES_WALLET})")
+        bot = SynFuturesTrader(
+            secret_key=SYNFUTURES_PRIVATE_KEY,
+            account_address=SYNFUTURES_WALLET,
+            service_url=SYNFUTURES_SERVICE_URL,
+        )
 
     # Calcolo delle informazioni in input per Ticker
     tickers = ["BTC", "ETH", "SOL"]
@@ -59,6 +65,10 @@ try:
     account_status = bot.get_account_status()
     print(f"   Saldo USD: ${account_status.get('balance_usd', 0.0):.2f}")
     print(f"   Posizioni aperte: {len(account_status.get('open_positions', []))}")
+    if account_status.get("paper_trading"):
+        paper = account_status.get("paper", {})
+        print(f"   [paper] Equity ${paper.get('equity_usd', 0):.2f}, P&L ${paper.get('pnl_usd', 0):+.2f} "
+              f"su ${paper.get('initial_usdc', 0):.2f} iniziali, {paper.get('trades', 0)} ordini simulati")
 
     stop_losses = check_stop_loss(account_status)
     portfolio_data = f"{json.dumps(account_status)}\n Stop Loss attivati 15 min fa: {stop_losses}"

@@ -5,32 +5,38 @@ echo "========================================================"
 echo " Starting Intelligent Trading Agent on CapRover / Docker"
 echo "========================================================"
 
-# 1. Start SynFutures Node.js Microservice in background on port 3100
-echo "[1/4] Starting SynFutures Node.js microservice on port 3100..."
-cd /app/synfutures-service
-export SYNFUTURES_PORT=3100
-export SYNFUTURES_SERVICE_URL="http://localhost:3100"
-if [ -d "dist" ]; then
-    node dist/index.js &
+# 1-2. In paper trading il conto e' virtuale: il microservizio non serve
+SERVICE_PID=""
+if [ "${PAPER_TRADING:-false}" = "true" ]; then
+    echo "📝 PAPER attivo: conto virtuale, synfutures-service non avviato."
 else
-    npx ts-node src/index.ts &
-fi
-SERVICE_PID=$!
-cd /app
+    # 1. Start SynFutures Node.js Microservice in background on port 3100
+    echo "[1/4] Starting SynFutures Node.js microservice on port 3100..."
+    cd /app/synfutures-service
+    export SYNFUTURES_PORT=3100
+    export SYNFUTURES_SERVICE_URL="http://localhost:3100"
+    if [ -d "dist" ]; then
+        node dist/index.js &
+    else
+        npx ts-node src/index.ts &
+    fi
+    SERVICE_PID=$!
+    cd /app
 
-# 2. Wait for synfutures-service /health endpoint
-echo "[2/4] Waiting for SynFutures microservice on http://localhost:3100/health..."
-MAX_TRIES=30
-COUNT=0
-until curl -s http://localhost:3100/health > /dev/null 2>&1 || [ $COUNT -eq $MAX_TRIES ]; do
-    sleep 1
-    COUNT=$((COUNT + 1))
-done
+    # 2. Wait for synfutures-service /health endpoint
+    echo "[2/4] Waiting for SynFutures microservice on http://localhost:3100/health..."
+    MAX_TRIES=30
+    COUNT=0
+    until curl -s http://localhost:3100/health > /dev/null 2>&1 || [ $COUNT -eq $MAX_TRIES ]; do
+        sleep 1
+        COUNT=$((COUNT + 1))
+    done
 
-if [ $COUNT -eq $MAX_TRIES ]; then
-    echo "⚠️ Warning: synfutures-service did not respond in time, proceeding anyway..."
-else
-    echo "✅ SynFutures microservice is ready!"
+    if [ $COUNT -eq $MAX_TRIES ]; then
+        echo "⚠️ Warning: synfutures-service did not respond in time, proceeding anyway..."
+    else
+        echo "✅ SynFutures microservice is ready!"
+    fi
 fi
 
 # 3. Start Web Dashboard on port 3000 (accessible via CapRover HTTP)
@@ -50,7 +56,7 @@ fi
 # Cleanup on exit
 cleanup() {
     echo "Stopping background services..."
-    kill $SERVICE_PID 2>/dev/null || true
+    [ -n "$SERVICE_PID" ] && kill $SERVICE_PID 2>/dev/null || true
     kill $DASHBOARD_PID 2>/dev/null || true
     [ -n "$TELEGRAM_PID" ] && kill $TELEGRAM_PID 2>/dev/null || true
     exit 0
