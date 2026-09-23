@@ -38,8 +38,12 @@ try:
             service_url=SYNFUTURES_SERVICE_URL,
         )
 
-    # Calcolo delle informazioni in input per Ticker
-    tickers = ["BTC", "ETH", "SOL"]
+    # Calcolo delle informazioni in input per Ticker: solo le coppie che
+    # esistono davvero come perpetual su SynFutures
+    candidates = [t.strip().upper() for t in os.getenv("TRADING_TICKERS", "BTC,ETH").split(",") if t.strip()]
+    tickers = bot.filter_tradable(candidates)
+    if not tickers:
+        raise RuntimeError(f"Nessuno dei ticker {candidates} ha un perpetual su SynFutures")
     print(f"📊 Calcolo indicatori tecnici per: {tickers}...")
     indicators_txt, indicators_json = analyze_multiple_tickers(tickers)
 
@@ -50,7 +54,7 @@ try:
     sentiment_txt, sentiment_json = get_sentiment()
 
     print("🔮 Calcolo previsioni con Prophet...")
-    forecasts_txt, forecasts_json = get_crypto_forecasts()
+    forecasts_txt, forecasts_json = get_crypto_forecasts(tickers)
     if not forecasts_txt:
         # Meglio dirlo esplicitamente all'LLM che passargli la stringa "None"
         forecasts_txt = "Previsioni non disponibili in questo ciclo."
@@ -86,7 +90,7 @@ try:
     system_prompt = system_prompt_template.format(portfolio_data, msg_info)
 
     print(f"🤖 L'agente AI (OpenRouter {OPENROUTER_MODEL}) sta decidendo la sua azione...")
-    out = previsione_trading_agent(system_prompt)
+    out = previsione_trading_agent(system_prompt, symbols=tickers)
     print(f"   Segnale generato: {json.dumps(out, indent=2)}")
 
     print("⚡ Esecuzione del segnale su SynFutures...")

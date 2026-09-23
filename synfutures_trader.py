@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import time
 import requests
 from typing import Dict, Any, List, Optional
 from decimal import Decimal, ROUND_DOWN
@@ -37,6 +38,8 @@ class SynFuturesTrader:
         self.api_key = api_key or os.getenv("API_KEY")
         self.timeout = timeout
         self.testnet = testnet
+        self._markets: Dict[str, str] = {}
+        self._markets_at = 0.0
 
         # Verifica preliminare raggiungibilità del servizio
         self._check_service_health()
@@ -95,11 +98,66 @@ class SynFuturesTrader:
     # ----------------------------------------------------------------------
     #                        NORMALIZZAZIONE SIMBOLI
     # ----------------------------------------------------------------------
+    # Expiry dei perpetual in SynFutures V3 (type(uint32).max)
+    PERP_EXPIRY = "4294967295"
+    MARKETS_TTL = 600
+
+    def get_tradable_markets(self) -> Dict[str, str]:
+        """
+        Mercati perpetual realmente quotati su SynFutures: ticker -> simbolo
+        dello strumento (es. {"BTC": "BTC-USDC-LINK"}). Serve a non chiedere
+        ordini su coppie che non esistono.
+        Cache di 10 minuti; se il servizio non risponde restituisce {} e i
+        chiamanti ripiegano sul comportamento precedente.
+        """
+        if self._markets and time.time() - self._markets_at < self.MARKETS_TTL:
+            return self._markets
+        try:
+            instruments = self._make_request("GET", "/instruments")
+        except Exception as e:
+            logger.warning(f"⚠️ Elenco strumenti SynFutures non disponibile: {e}")
+            return self._markets
+
+        markets: Dict[str, str] = {}
+        for inst in instruments if isinstance(instruments, list) else []:
+            sym = str(inst.get("symbol") or "").upper()
+            parts = sym.split("-")
+            if len(parts) < 2:
+                continue
+            amms = inst.get("amms") or {}
+            if amms and self.PERP_EXPIRY not in amms:
+                continue  # nessun perpetual su questo strumento
+            base, quote = parts[0], parts[1]
+            if quote not in ("USDC", "USDB", "USDT"):
+                continue
+            # a parita' di base preferisci il margine in USDC
+            if base not in markets or (quote == "USDC" and not markets[base].split("-")[1] == "USDC"):
+                markets[base] = inst.get("symbol")
+        if markets:
+            self._markets, self._markets_at = markets, time.time()
+        return self._markets
+
+    def filter_tradable(self, tickers: List[str]) -> List[str]:
+        """Tiene solo i ticker che hanno un perpetual su SynFutures."""
+        markets = self.get_tradable_markets()
+        if not markets:
+            return list(tickers)  # elenco non disponibile: non scartare nulla
+        kept = [t for t in tickers if t.upper() in markets]
+        skipped = [t for t in tickers if t.upper() not in markets]
+        if skipped:
+            logger.warning(f"⚠️ Nessun perpetual SynFutures per {skipped}: esclusi dal ciclo")
+            print(f"⚠️  Nessun perpetual SynFutures per {', '.join(skipped)}: esclusi dal ciclo")
+        return kept
+
     def normalize_symbol(self, symbol: str) -> str:
         """
         Normalizza il simbolo nel formato SynFutures Base-Quote-Oracle (es: BTC-USDC-LINK).
+        Se lo strumento esiste, usa il simbolo reale restituito dal servizio.
         """
-        sym = symbol.strip().upper().replace("/", "-").replace("_", "-")
+        sym = str(symbol or "").strip().upper().replace("/", "-").replace("_", "-")
+        base = sym.split("-")[0]
+        if base and base in self._markets:
+            return self._markets[base]
         parts = sym.split("-")
 
         # Se passato solo il nome del coin (es. "BTC")
@@ -138,6 +196,9 @@ class SynFuturesTrader:
         for f in required_fields:
             if f not in order_json:
                 raise ValueError(f"Missing required field: {f}")
+
+        if not isinstance(order_json["symbol"], str) or not order_json["symbol"].strip():
+            raise ValueError("symbol must be a non-empty string")
 
         if order_json["operation"] not in ("open", "close", "hold"):
             raise ValueError("operation must be 'open', 'close', or 'hold'")
@@ -268,12 +329,22 @@ class SynFuturesTrader:
 
         op = order_json["operation"]
         raw_symbol = order_json["symbol"]
-        norm_symbol = self.normalize_symbol(raw_symbol)
 
         # 1. Operazione HOLD
         if op == "hold":
             logger.info(f"[SynFuturesTrader] HOLD — nessuna azione per {raw_symbol}.")
             return {"status": "hold", "message": f"No action taken for {raw_symbol}."}
+
+        # Coppia inesistente su SynFutures: scarta il segnale invece di far
+        # fallire il ciclo con "Instrument ... not found"
+        markets = self.get_tradable_markets()
+        coin = self.denormalize_symbol(str(raw_symbol).strip().upper().replace("/", "-"))
+        if op == "open" and markets and coin not in markets:
+            msg = (f"Nessun perpetual {coin} su SynFutures: ordine non inviato. "
+                   f"Mercati disponibili: {', '.join(sorted(markets))}")
+            logger.warning(f"[SynFuturesTrader] {msg}")
+            return {"status": "rejected", "message": msg}
+        norm_symbol = self.normalize_symbol(raw_symbol)
 
         # 2. Operazione CLOSE
         if op == "close":

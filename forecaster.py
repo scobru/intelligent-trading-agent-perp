@@ -184,11 +184,11 @@ class CryptoForecaster:
 # Alias retrocompatibilità
 HyperliquidForecaster = CryptoForecaster
 
-def get_hyperliquid_forecasts(tickers=["BTC", "ETH", "SOL"], testnet=False):
+def get_hyperliquid_forecasts(tickers=["BTC", "ETH"], testnet=False):
     forecaster = CryptoForecaster(testnet=testnet)
     return forecaster.get_crypto_forecasts(tickers)
 
-def get_crypto_forecasts(tickers=["BTC", "ETH", "SOL"], testnet=False):
+def get_crypto_forecasts(tickers=["BTC", "ETH"], testnet=False):
     try:
         forecaster = CryptoForecaster(testnet=testnet)
         results = forecaster.forecast_many(tickers)

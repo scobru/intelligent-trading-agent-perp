@@ -8,7 +8,7 @@
 
 **Intelligent Trading Agent** è un agente di trading quantitativo e AI-driven basato sulla struttura di [rizzo-trading-agent](https://github.com/Rizzo-AI-Academy/rizzo-trading-agent), specificamente adattato per operare sul DEX perpetuo decentralizzato **SynFutures V3** (su rete **Base**) e potenziato tramite i modelli LLM accessibili via **OpenRouter** (`openrouter/free`).
 
-L’agente analizza dati di mercato intraday (15m), indicatori tecnici, sentiment, notizie e previsioni di serie temporali per formulare e piazzare automaticamente ordini di trading in leva su asset crypto principali (`BTC`, `ETH`, `SOL`).
+L’agente analizza dati di mercato intraday (15m), indicatori tecnici, sentiment, notizie e previsioni di serie temporali per formulare e piazzare automaticamente ordini di trading in leva su asset crypto principali (`BTC`, `ETH`).
 
 ---
 
@@ -147,6 +147,7 @@ docker compose logs -f
 ## 🛡️ Gestione del Rischio
 - Ogni operazione include un calcolo dinamico del margine in base alla frazione di capitale allocata (`target_portion_of_balance`).
 - Verifica automatica del notional minimo richiesto su Base (~$70) prima dell'invio a SynFutures.
+- Solo coppie esistenti: a ogni ciclo i ticker di `TRADING_TICKERS` (default `BTC,ETH`) vengono confrontati con gli strumenti perpetual di SynFutures (`/instruments`); quelli assenti sono esclusi da analisi, prompt e ordini, e un segnale su una coppia non quotata diventa `hold`/`rejected` invece di un errore.
 - Tracciamento locale degli Stop Loss tramite `utils.py` e `account_status_old.json`.
 
 ---

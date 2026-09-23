@@ -275,7 +275,14 @@ class PaperSynFuturesTrader(SynFuturesTrader):
         self.account = account or PaperPerpAccount()
         self.price_fn = price_fn or fetch_price
         self.account_address = "paper"
+        self._markets: Dict[str, str] = {}
         self.last_events: List[Dict[str, Any]] = []
+
+    def get_tradable_markets(self) -> Dict[str, str]:
+        return {}  # in paper i prezzi arrivano da Binance/Kraken: nessun filtro
+
+    def filter_tradable(self, tickers: List[str]) -> List[str]:
+        return list(tickers)
 
     def _prices(self, coins) -> Dict[str, float]:
         prices = {}
