@@ -12,3 +12,4 @@ toonify
 openai>=1.0.0
 plotly
 requests>=2.31.0
+web3>=7.0.0,<9

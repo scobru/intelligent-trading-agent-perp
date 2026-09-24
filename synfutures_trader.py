@@ -3,9 +3,14 @@ import json
 import logging
 import time
 import requests
+import time
 from typing import Dict, Any, List, Optional
 from decimal import Decimal, ROUND_DOWN
 from dotenv import load_dotenv
+
+import config
+from base_client import BaseClient, BaseChainError
+from uniswap import UniswapV3
 
 load_dotenv()
 
@@ -16,7 +21,8 @@ class SynFuturesTrader:
     Exchange Trader per SynFutures V3 (Base Chain).
     Fornisce un'interfaccia compatibile con HyperLiquidTrader per
     la gestione delle posizioni, balance ed esecuzione dei segnali AI.
-    Comunica tramite REST con il microservizio synfutures-service (Node.js/Oyster SDK).
+    Comunica tramite REST con il microservizio synfutures-service (Node.js/Oyster SDK)
+    e direttamente on-chain via Web3 per auto-refuel USDC e deposito sul Gate.
     """
 
     def __init__(
@@ -41,8 +47,29 @@ class SynFuturesTrader:
         self._markets: Dict[str, str] = {}
         self._markets_at = 0.0
 
+        # Client Web3 su Base (per auto-refuel da ETH e fallback sul Gate)
+        self.client: Optional[BaseClient] = None
+        self._uniswap: Optional[UniswapV3] = None
+        try:
+            rpc_url = os.getenv("BASE_RPC") or os.getenv("BASE_RPC_URL") or config.BASE_RPC_URL
+            self.client = BaseClient(
+                rpc_url=rpc_url,
+                private_key=self.secret_key,
+                address=self.account_address,
+            )
+            if self.client.address and not self.account_address:
+                self.account_address = self.client.address
+        except Exception as e:
+            logger.warning(f"⚠️ Impossibile inizializzare BaseClient Web3: {e}")
+
         # Verifica preliminare raggiungibilità del servizio
         self._check_service_health()
+
+    @property
+    def uniswap(self) -> Optional[UniswapV3]:
+        if self._uniswap is None and self.client:
+            self._uniswap = UniswapV3(self.client)
+        return self._uniswap
 
     def _get_headers(self) -> Dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -357,11 +384,146 @@ class SynFuturesTrader:
         }
 
     # ----------------------------------------------------------------------
+    #                   GESTIONE GATE & AUTO-REFUEL
+    # ----------------------------------------------------------------------
+    def deposit_usdc(self, amount: float) -> Dict[str, Any]:
+        """
+        Deposita USDC sul Gate di SynFutures.
+        Usa primariamente il microservizio REST (synfutures-service); se non risponde,
+        fa fallback sulla chiamata diretta on-chain Web3 (BaseClient.deposit_to_gate).
+        """
+        if amount <= 0:
+            raise ValueError("Importo di deposito non valido")
+
+        # 1. Tentativo via microservizio REST
+        try:
+            logger.info(f"⏳ Deposito di ${amount:.2f} USDC sul Gate via synfutures-service...")
+            res = self._make_request("POST", "/gate/deposit", {"token": "USDC", "amount": f"{amount:.6f}"})
+            logger.info(f"✅ Deposito Gate completato via microservizio: {res}")
+            return res
+        except Exception as err:
+            logger.warning(f"⚠️ Deposito via microservizio fallito ({err}). Tentativo fallback Web3 diretto...")
+
+        # 2. Fallback Web3 diretto
+        if self.client and self.client.has_signer:
+            res = self.client.deposit_to_gate(config.USDC, amount)
+            logger.info(f"✅ Deposito Gate completato via Web3: {res}")
+            return res
+
+        raise RuntimeError(f"Impossibile depositare ${amount:.2f} USDC sul Gate (servizio e Web3 falliti)")
+
+    def withdraw_usdc(self, amount: float) -> Dict[str, Any]:
+        """
+        Ritira USDC dal Gate di SynFutures verso il wallet.
+        """
+        if amount <= 0:
+            raise ValueError("Importo di ritiro non valido")
+
+        try:
+            logger.info(f"⏳ Ritiro di ${amount:.2f} USDC dal Gate via synfutures-service...")
+            res = self._make_request("POST", "/gate/withdraw", {"token": "USDC", "amount": f"{amount:.6f}"})
+            logger.info(f"✅ Ritiro Gate completato via microservizio: {res}")
+            return res
+        except Exception as err:
+            logger.warning(f"⚠️ Ritiro via microservizio fallito ({err}). Tentativo fallback Web3...")
+
+        if self.client and self.client.has_signer:
+            res = self.client.withdraw_from_gate(config.USDC, amount)
+            logger.info(f"✅ Ritiro Gate completato via Web3: {res}")
+            return res
+
+        raise RuntimeError(f"Impossibile ritirare ${amount:.2f} USDC dal Gate")
+
+    def ensure_usdc_balance(self) -> Optional[Dict[str, Any]]:
+        """
+        Auto-refuel: Se il saldo USDC nel wallet e' sotto soglia ma c'e' ETH spendibile,
+        swappa in automatico ETH in USDC su Uniswap V3 (Base).
+        """
+        if not getattr(config, "AUTO_SWAP_ETH_TO_USDC", True) or not self.uniswap:
+            return None
+        return self.uniswap.auto_refuel_usdc()
+
+    def ensure_gate_margin(self, required_margin_usd: float) -> Dict[str, Any]:
+        """
+        Verifica il margine disponibile su Gate rispetto a required_margin_usd.
+        Se insufficiente:
+        1. Esegue auto-refuel ETH -> USDC su Uniswap V3 se il wallet e' a corto di USDC
+        2. Deposita il margine mancante (shortfall) sul Gate di SynFutures
+        """
+        status = self.get_account_status()
+        gate_balance = float(status.get("balance_usd", 0.0))
+
+        # Applica buffer di sicurezza per coprire funding e fee
+        buffer_factor = getattr(config, "GATE_MARGIN_BUFFER", 1.20)
+        needed = required_margin_usd * buffer_factor
+        shortfall = max(0.0, needed - gate_balance)
+
+        if shortfall <= 0.01:
+            logger.info(f"✅ Margine Gate sufficiente: ${gate_balance:.2f} >= ${needed:.2f}")
+            return {"status": "ok", "deposited": 0.0, "gate_balance": gate_balance}
+
+        logger.info(
+            f"⚠️ Fabbisogno Gate: servono ${needed:.2f} USDC (Gate attuale: ${gate_balance:.2f}, shortfall: ${shortfall:.2f})"
+        )
+
+        # 1. Controlla wallet USDC ed eventuale auto-refuel da ETH
+        wallet_usdc = 0.0
+        if self.client:
+            wallet_usdc = self.client.balance_of_float(config.USDC)
+            if wallet_usdc < shortfall and getattr(config, "AUTO_SWAP_ETH_TO_USDC", True):
+                logger.info(f"⛽ USDC nel wallet (${wallet_usdc:.2f}) < fabbisogno (${shortfall:.2f}). Tentativo auto-refuel da ETH...")
+                refuel_res = self.ensure_usdc_balance()
+                if refuel_res:
+                    logger.info(f"✅ Auto-refuel completato: {refuel_res.get('description', '')}")
+                    wallet_usdc = self.client.balance_of_float(config.USDC)
+
+        # 2. Deposita su Gate se abilitato
+        if not getattr(config, "AUTO_DEPOSIT_GATE", True):
+            logger.warning("AUTO_DEPOSIT_GATE disattivato. Salto il deposito automatico sul Gate.")
+            return {"status": "skipped", "deposited": 0.0, "gate_balance": gate_balance}
+
+        # Calcola importo effettivo da depositare
+        to_deposit = round(shortfall, 2)
+        if wallet_usdc > 0 and to_deposit > wallet_usdc:
+            logger.warning(
+                f"⚠️ Saldo USDC nel wallet (${wallet_usdc:.2f}) inferiore allo shortfall (${to_deposit:.2f}). "
+                "Deposito l'intero saldo USDC disponibile."
+            )
+            to_deposit = round(wallet_usdc, 2)
+
+        min_deposit = getattr(config, "MIN_GATE_DEPOSIT", 1.0)
+        if to_deposit < min_deposit:
+            logger.warning(
+                f"⚠️ Importo da depositare (${to_deposit:.2f}) inferiore al minimo (${min_deposit:.2f}) o wallet USDC vuoto."
+            )
+            return {"status": "insufficient_wallet", "deposited": 0.0, "gate_balance": gate_balance}
+
+        dep_res = self.deposit_usdc(to_deposit)
+
+        # Breve attesa per permettere la sincronizzazione on-chain / SDK
+        time.sleep(3)
+
+        new_status = self.get_account_status()
+        new_balance = float(new_status.get("balance_usd", 0.0))
+        logger.info(
+            f"🎉 Deposito Gate completato! Saldo Gate: ${gate_balance:.2f} -> ${new_balance:.2f} USDC"
+        )
+
+        return {
+            "status": "deposited",
+            "deposited": to_deposit,
+            "previous_balance": gate_balance,
+            "gate_balance": new_balance,
+            "tx": dep_res.get("txHash") or dep_res.get("tx_hash"),
+        }
+
+    # ----------------------------------------------------------------------
     #                        ESECUZIONE SEGNALE AI
     # ----------------------------------------------------------------------
     def execute_signal(self, order_json: Dict[str, Any]) -> Dict[str, Any]:
         """
         Esegue l'operazione ('open', 'close', 'hold') restituita dal modello AI.
+        Include auto-refuel USDC e auto-deposito nel Gate se il saldo è insufficiente.
         """
         self._validate_order_input(order_json)
 
@@ -397,27 +559,56 @@ class SynFuturesTrader:
         leverage = float(order_json.get("leverage", 1.0))
         stop_loss_percent = float(order_json.get("stop_loss_percent", 2.0))
 
-        # Recupera saldo account
+        # Recupera saldo account iniziale
         account_status = self.get_account_status()
         balance_usd = account_status["balance_usd"]
 
-        if balance_usd <= 0:
-            raise RuntimeError(f"Saldo insufficiente su Gate ($0.00). Impossibile aprire posizione per {raw_symbol}.")
-
-        # Calcola margine (collaterale in USD)
-        target_margin_usd = balance_usd * portion
-        if target_margin_usd <= 0:
-            target_margin_usd = min(balance_usd, 25.0)
-
         # Controllo notional minimo (SynFutures V3 su Base ha un notional minimo di circa ~$70)
-        min_notional = 70.0
+        min_notional = getattr(config, "MIN_NOTIONAL_USD", 70.0)
+
+        # Calcola margine target stimato
+        target_margin_usd = balance_usd * portion if balance_usd > 0 else 25.0
+        if target_margin_usd <= 0:
+            target_margin_usd = 25.0
+
         notional = target_margin_usd * leverage
         if notional < min_notional:
             logger.info(f"⚠️ Nozionale ${notional:.2f} < minimo richiesto (${min_notional:.2f}). Aggiusto leva/margine...")
             if target_margin_usd * 10 >= min_notional:
                 leverage = min(10.0, round(min_notional / target_margin_usd, 1))
             else:
-                target_margin_usd = min(balance_usd, min_notional / leverage)
+                target_margin_usd = min_notional / leverage
+
+        # AUTO-DEPOSITO & AUTO-REFUEL:
+        # Se il saldo Gate attuale è inferiore al margine richiesto per l'ordine,
+        # prova ad effettuare auto-refuel da ETH e auto-deposito sul Gate!
+        if balance_usd < target_margin_usd or balance_usd <= 0:
+            logger.info(
+                f"ℹ️ Saldo Gate attuale (${balance_usd:.2f}) < margine target (${target_margin_usd:.2f}). "
+                "Esecuzione auto-gestione collaterale Gate..."
+            )
+            self.ensure_gate_margin(target_margin_usd)
+            # Ricarica stato account aggiornato dopo eventuale deposito
+            account_status = self.get_account_status()
+            balance_usd = account_status["balance_usd"]
+
+            # Ricalcola target_margin_usd in base al saldo Gate effettivo
+            if balance_usd > 0:
+                target_margin_usd = min(balance_usd, max(target_margin_usd, balance_usd * portion))
+                notional = target_margin_usd * leverage
+                if notional < min_notional:
+                    if target_margin_usd * 10 >= min_notional:
+                        leverage = min(10.0, round(min_notional / target_margin_usd, 1))
+                    else:
+                        target_margin_usd = min(balance_usd, min_notional / leverage)
+
+        if balance_usd <= 0:
+            eth_info = f", ETH wallet: {self.client.eth_balance():.5f}" if self.client else ""
+            usdc_info = f", USDC wallet: ${self.client.balance_of_float(config.USDC):.2f}" if self.client else ""
+            raise RuntimeError(
+                f"Saldo insufficiente su Gate (${balance_usd:.2f}){eth_info}{usdc_info}. "
+                f"Impossibile aprire posizione per {raw_symbol}. Ricarica ETH o USDC nel wallet."
+            )
 
         synfutures_side = "LONG" if direction == "long" else "SHORT"
 

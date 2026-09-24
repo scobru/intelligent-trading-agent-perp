@@ -10,6 +10,7 @@ from paper import PAPER_TRADING, PAPER_START_USDC, PaperSynFuturesTrader
 import os
 import json
 import db_utils
+import config
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -37,6 +38,24 @@ try:
             account_address=SYNFUTURES_WALLET,
             service_url=SYNFUTURES_SERVICE_URL,
         )
+
+    # 0. Auto-refuel USDC (se ETH disponibile oltre riserva gas, solo se non in paper)
+    if not PAPER_TRADING:
+        try:
+            refuel_res = bot.ensure_usdc_balance()
+            if refuel_res:
+                print(f"⛽ Auto-refuel completato: {refuel_res.get('description', '')}")
+        except Exception as exc:
+            print(f"⚠️ Auto-refuel non riuscito (proseguo con saldo attuale): {exc}")
+
+        # Saldo Wallet su Base (se disponibile)
+        if getattr(bot, "client", None) and bot.client:
+            try:
+                eth_bal = bot.client.eth_balance()
+                usdc_bal = bot.client.balance_of_float(config.USDC)
+                print(f"💼 Saldo Wallet Base: {eth_bal:.5f} ETH | ${usdc_bal:.2f} USDC")
+            except Exception:
+                pass
 
     # Calcolo delle informazioni in input per Ticker: solo le coppie che
     # esistono davvero come perpetual su SynFutures
