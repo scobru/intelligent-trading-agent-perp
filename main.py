@@ -10,10 +10,16 @@ from paper import PAPER_TRADING, PAPER_START_USDC, PaperSynFuturesTrader
 import os
 import json
 import db_utils
-import config
+import sys
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Verifica stato pausa (da Coordinator o operatore)
+if db_utils.is_bot_paused():
+    pinfo = db_utils.get_pause_info()
+    print(f"⏸️ Bot in stato di PAUSA ({pinfo.get('reason', 'Pausa attiva')}). Ciclo ignorato.")
+    sys.exit(0)
 
 # Configurazione SynFutures & OpenRouter
 SYNFUTURES_WALLET = os.getenv("SYNFUTURES_WALLET") or os.getenv("WALLET_ADDRESS")
