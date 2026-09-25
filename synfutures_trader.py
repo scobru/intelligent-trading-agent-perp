@@ -483,8 +483,12 @@ class SynFuturesTrader:
             return {"status": "skipped", "deposited": 0.0, "gate_balance": gate_balance}
 
         # Calcola importo effettivo da depositare
+        if wallet_usdc <= 0:
+            logger.warning("⚠️ Saldo USDC nel wallet pari a zero: impossibile depositare sul Gate.")
+            return {"status": "insufficient_wallet", "deposited": 0.0, "gate_balance": gate_balance}
+
         to_deposit = round(shortfall, 2)
-        if wallet_usdc > 0 and to_deposit > wallet_usdc:
+        if to_deposit > wallet_usdc:
             logger.warning(
                 f"⚠️ Saldo USDC nel wallet (${wallet_usdc:.2f}) inferiore allo shortfall (${to_deposit:.2f}). "
                 "Deposito l'intero saldo USDC disponibile."
@@ -494,7 +498,7 @@ class SynFuturesTrader:
         min_deposit = getattr(config, "MIN_GATE_DEPOSIT", 1.0)
         if to_deposit < min_deposit:
             logger.warning(
-                f"⚠️ Importo da depositare (${to_deposit:.2f}) inferiore al minimo (${min_deposit:.2f}) o wallet USDC vuoto."
+                f"⚠️ Importo da depositare (${to_deposit:.2f}) inferiore al minimo (${min_deposit:.2f})."
             )
             return {"status": "insufficient_wallet", "deposited": 0.0, "gate_balance": gate_balance}
 
@@ -525,118 +529,129 @@ class SynFuturesTrader:
         Esegue l'operazione ('open', 'close', 'hold') restituita dal modello AI.
         Include auto-refuel USDC e auto-deposito nel Gate se il saldo è insufficiente.
         """
-        self._validate_order_input(order_json)
+        try:
+            self._validate_order_input(order_json)
 
-        op = order_json["operation"]
-        raw_symbol = order_json["symbol"]
+            op = order_json["operation"]
+            raw_symbol = order_json["symbol"]
 
-        # 1. Operazione HOLD
-        if op == "hold":
-            logger.info(f"[SynFuturesTrader] HOLD — nessuna azione per {raw_symbol}.")
-            return {"status": "hold", "message": f"No action taken for {raw_symbol}."}
+            # 1. Operazione HOLD
+            if op == "hold":
+                logger.info(f"[SynFuturesTrader] HOLD — nessuna azione per {raw_symbol}.")
+                return {"status": "hold", "message": f"No action taken for {raw_symbol}."}
 
-        # Coppia inesistente su SynFutures: scarta il segnale invece di far
-        # fallire il ciclo con "Instrument ... not found"
-        markets = self.get_tradable_markets()
-        coin = self.denormalize_symbol(str(raw_symbol).strip().upper().replace("/", "-"))
-        if op == "open" and markets and coin not in markets:
-            msg = (f"Nessun perpetual {coin} su SynFutures: ordine non inviato. "
-                   f"Mercati disponibili: {', '.join(sorted(markets))}")
-            logger.warning(f"[SynFuturesTrader] {msg}")
-            return {"status": "rejected", "message": msg}
-        norm_symbol = self.normalize_symbol(raw_symbol)
+            # Coppia inesistente su SynFutures: scarta il segnale invece di far
+            # fallire il ciclo con "Instrument ... not found"
+            markets = self.get_tradable_markets()
+            coin = self.denormalize_symbol(str(raw_symbol).strip().upper().replace("/", "-"))
+            if op == "open" and markets and coin not in markets:
+                msg = (f"Nessun perpetual {coin} su SynFutures: ordine non inviato. "
+                       f"Mercati disponibili: {', '.join(sorted(markets))}")
+                logger.warning(f"[SynFuturesTrader] {msg}")
+                return {"status": "rejected", "message": msg}
+            norm_symbol = self.normalize_symbol(raw_symbol)
 
-        # 2. Operazione CLOSE
-        if op == "close":
-            logger.info(f"[SynFuturesTrader] Market CLOSE per {norm_symbol} ({raw_symbol})")
-            res = self._make_request("POST", "/order/close", {"symbol": norm_symbol})
-            logger.info(f"✅ Posizione chiusa: {res}")
-            return res
+            # 2. Operazione CLOSE
+            if op == "close":
+                logger.info(f"[SynFuturesTrader] Market CLOSE per {norm_symbol} ({raw_symbol})")
+                res = self._make_request("POST", "/order/close", {"symbol": norm_symbol})
+                logger.info(f"✅ Posizione chiusa: {res}")
+                return res
 
-        # 3. Operazione OPEN
-        direction = order_json["direction"] # 'long' o 'short'
-        portion = float(order_json["target_portion_of_balance"])
-        leverage = float(order_json.get("leverage", 1.0))
-        stop_loss_percent = float(order_json.get("stop_loss_percent", 2.0))
+            # 3. Operazione OPEN
+            direction = order_json["direction"] # 'long' o 'short'
+            portion = float(order_json["target_portion_of_balance"])
+            leverage = float(order_json.get("leverage", 1.0))
+            stop_loss_percent = float(order_json.get("stop_loss_percent", 2.0))
 
-        # Recupera saldo account iniziale
-        account_status = self.get_account_status()
-        balance_usd = account_status["balance_usd"]
-
-        # Controllo notional minimo (SynFutures V3 su Base ha un notional minimo di circa ~$70)
-        min_notional = getattr(config, "MIN_NOTIONAL_USD", 70.0)
-
-        # Calcola margine target stimato
-        target_margin_usd = balance_usd * portion if balance_usd > 0 else 25.0
-        if target_margin_usd <= 0:
-            target_margin_usd = 25.0
-
-        notional = target_margin_usd * leverage
-        if notional < min_notional:
-            logger.info(f"⚠️ Nozionale ${notional:.2f} < minimo richiesto (${min_notional:.2f}). Aggiusto leva/margine...")
-            if target_margin_usd * 10 >= min_notional:
-                leverage = min(10.0, round(min_notional / target_margin_usd, 1))
-            else:
-                target_margin_usd = min_notional / leverage
-
-        # AUTO-DEPOSITO & AUTO-REFUEL:
-        # Se il saldo Gate attuale è inferiore al margine richiesto per l'ordine,
-        # prova ad effettuare auto-refuel da ETH e auto-deposito sul Gate!
-        if balance_usd < target_margin_usd or balance_usd <= 0:
-            logger.info(
-                f"ℹ️ Saldo Gate attuale (${balance_usd:.2f}) < margine target (${target_margin_usd:.2f}). "
-                "Esecuzione auto-gestione collaterale Gate..."
-            )
-            self.ensure_gate_margin(target_margin_usd)
-            # Ricarica stato account aggiornato dopo eventuale deposito
+            # Recupera saldo account iniziale
             account_status = self.get_account_status()
             balance_usd = account_status["balance_usd"]
 
-            # Ricalcola target_margin_usd in base al saldo Gate effettivo
-            if balance_usd > 0:
-                target_margin_usd = min(balance_usd, max(target_margin_usd, balance_usd * portion))
-                notional = target_margin_usd * leverage
-                if notional < min_notional:
-                    if target_margin_usd * 10 >= min_notional:
-                        leverage = min(10.0, round(min_notional / target_margin_usd, 1))
-                    else:
-                        target_margin_usd = min(balance_usd, min_notional / leverage)
+            # Controllo notional minimo (SynFutures V3 su Base ha un notional minimo di circa ~$70)
+            min_notional = getattr(config, "MIN_NOTIONAL_USD", 70.0)
 
-        if balance_usd <= 0:
-            eth_info = f", ETH wallet: {self.client.eth_balance():.5f}" if self.client else ""
-            usdc_info = f", USDC wallet: ${self.client.balance_of_float(config.USDC):.2f}" if self.client else ""
-            raise RuntimeError(
-                f"Saldo insufficiente su Gate (${balance_usd:.2f}){eth_info}{usdc_info}. "
-                f"Impossibile aprire posizione per {raw_symbol}. Ricarica ETH o USDC nel wallet."
+            # Calcola margine target stimato
+            target_margin_usd = balance_usd * portion if balance_usd > 0 else 25.0
+            if target_margin_usd <= 0:
+                target_margin_usd = 25.0
+
+            notional = target_margin_usd * leverage
+            if notional < min_notional:
+                logger.info(f"⚠️ Nozionale ${notional:.2f} < minimo richiesto (${min_notional:.2f}). Aggiusto leva/margine...")
+                if target_margin_usd * 10 >= min_notional:
+                    leverage = min(10.0, round(min_notional / target_margin_usd, 1))
+                else:
+                    target_margin_usd = min_notional / leverage
+
+            # AUTO-DEPOSITO & AUTO-REFUEL:
+            # Se il saldo Gate attuale è inferiore al margine richiesto per l'ordine,
+            # prova ad effettuare auto-refuel da ETH e auto-deposito sul Gate!
+            if balance_usd < target_margin_usd or balance_usd <= 0:
+                logger.info(
+                    f"ℹ️ Saldo Gate attuale (${balance_usd:.2f}) < margine target (${target_margin_usd:.2f}). "
+                    "Esecuzione auto-gestione collaterale Gate..."
+                )
+                try:
+                    self.ensure_gate_margin(target_margin_usd)
+                except Exception as dep_err:
+                    logger.warning(f"⚠️ Gestione automatica collaterale non riuscita: {dep_err}")
+
+                # Ricarica stato account aggiornato dopo eventuale deposito
+                account_status = self.get_account_status()
+                balance_usd = account_status["balance_usd"]
+
+                # Ricalcola target_margin_usd in base al saldo Gate effettivo
+                if balance_usd > 0:
+                    target_margin_usd = min(balance_usd, max(target_margin_usd, balance_usd * portion))
+                    notional = target_margin_usd * leverage
+                    if notional < min_notional:
+                        if target_margin_usd * 10 >= min_notional:
+                            leverage = min(10.0, round(min_notional / target_margin_usd, 1))
+                        else:
+                            target_margin_usd = min(balance_usd, min_notional / leverage)
+
+            if balance_usd <= 0:
+                eth_info = f", ETH wallet: {self.client.eth_balance():.5f}" if self.client else ""
+                usdc_info = f", USDC wallet: ${self.client.balance_of_float(config.USDC):.2f}" if self.client else ""
+                msg = (
+                    f"Saldo insufficiente su Gate (${balance_usd:.2f}){eth_info}{usdc_info}. "
+                    f"Impossibile aprire posizione per {raw_symbol}. Ricarica ETH o USDC nel wallet."
+                )
+                logger.warning(f"[SynFuturesTrader] {msg}")
+                return {"status": "rejected", "message": msg}
+
+            synfutures_side = "LONG" if direction == "long" else "SHORT"
+
+            logger.info(
+                f"\n[SynFuturesTrader] Ordine Market {synfutures_side} su {norm_symbol}\n"
+                f"  Margine: ${target_margin_usd:.2f} USD\n"
+                f"  Leva: {leverage}x\n"
+                f"  Nozionale stimato: ${target_margin_usd * leverage:.2f}\n"
+                f"  Stop Loss desiderato: {stop_loss_percent}%\n"
             )
 
-        synfutures_side = "LONG" if direction == "long" else "SHORT"
+            order_payload = {
+                "symbol": norm_symbol,
+                "side": synfutures_side,
+                "sizeUsd": round(target_margin_usd, 2),
+                "leverage": leverage,
+                "slippage": 100,  # 1%
+            }
 
-        logger.info(
-            f"\n[SynFuturesTrader] Ordine Market {synfutures_side} su {norm_symbol}\n"
-            f"  Margine: ${target_margin_usd:.2f} USD\n"
-            f"  Leva: {leverage}x\n"
-            f"  Nozionale stimato: ${target_margin_usd * leverage:.2f}\n"
-            f"  Stop Loss desiderato: {stop_loss_percent}%\n"
-        )
+            res = self._make_request("POST", "/order/market", order_payload)
+            logger.info(f"✅ Ordine inviato con successo: {res}")
 
-        order_payload = {
-            "symbol": norm_symbol,
-            "side": synfutures_side,
-            "sizeUsd": round(target_margin_usd, 2),
-            "leverage": leverage,
-            "slippage": 100,  # 1%
-        }
+            # Arricchisci risposta per tracciamento stop loss
+            if isinstance(res, dict):
+                res["stop_loss_percent"] = stop_loss_percent
+                res["target_portion_of_balance"] = portion
 
-        res = self._make_request("POST", "/order/market", order_payload)
-        logger.info(f"✅ Ordine inviato con successo: {res}")
+            return res
 
-        # Arricchisci risposta per tracciamento stop loss
-        if isinstance(res, dict):
-            res["stop_loss_percent"] = stop_loss_percent
-            res["target_portion_of_balance"] = portion
-
-        return res
+        except Exception as exc:
+            logger.error(f"[SynFuturesTrader] Errore durante esecuzione segnale: {exc}")
+            return {"status": "error", "message": str(exc)}
 
     # ----------------------------------------------------------------------
     #                        GESTIONE LEVA & LIMITI

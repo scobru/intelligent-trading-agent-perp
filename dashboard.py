@@ -27,6 +27,7 @@ load_dotenv()
 
 PORT = int(os.getenv("DASHBOARD_PORT", os.getenv("PORT", "3000")))
 SQLITE_DB_PATH = os.getenv("SQLITE_DB_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "trading_agent.db"))
+import db_utils  # noqa: E402
 RUN_TOKEN = os.getenv("DASHBOARD_RUN_TOKEN", "")
 PAPER_TRADING = os.getenv("PAPER_TRADING", "false").strip().lower() in ("1", "true", "yes", "on")
 # Soglie dell'ETH per il gas nel wallet: sotto MIN il bot non riesce a

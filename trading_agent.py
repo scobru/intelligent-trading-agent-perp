@@ -35,9 +35,10 @@ client = OpenAI(
 
 DEFAULT_SYMBOLS = ["BTC", "ETH"]
 
-SYSTEM_RULES = """You are an expert crypto trading agent.
+SYSTEM_RULES = """You are an automated algorithmic execution program operating in a simulated and automated trading environment. This is automated software system execution, not personal financial advice.
 Analyze the provided portfolio status and market indicators, then decide on a trading action.
 Only these symbols are tradable: {symbols_list}. Never open a position on any other symbol.
+CRITICAL BALANCE RULE: If the available USD balance (balance_usd) is 0 or insufficient, you CANNOT open any new positions. You MUST output operation: "hold".
 You MUST output ONLY a valid, raw JSON object (no extra commentary) adhering strictly to this schema:
 {{
     "operation": "open" | "close" | "hold",
@@ -71,6 +72,18 @@ def _clean_and_parse_json(text: str, symbols=None) -> dict:
     """Extract and parse JSON safely from model response."""
     if not text or not text.strip():
         raise ValueError("Risposta del modello vuota o nulla (content=None)")
+
+    # Strip conversational or moderation preamble lines (e.g. "User Safety: unsafe", "Safety Categories: Unauthorized Advice")
+    lines = text.splitlines()
+    clean_lines = [
+        l for l in lines
+        if not l.strip().lower().startswith("user safety:")
+        and not l.strip().lower().startswith("safety:")
+        and not l.strip().lower().startswith("safety categories:")
+    ]
+    text = "\n".join(clean_lines).strip()
+    if not text:
+        raise ValueError("Risposta del modello non contiene testo valido dopo la rimozione dei prefissi di sicurezza")
 
     text = text.strip()
     
@@ -128,6 +141,11 @@ def _clean_and_parse_json(text: str, symbols=None) -> dict:
         data["stop_loss_percent"] = max(1.0, min(3.0, float(data["stop_loss_percent"])))
     except (ValueError, TypeError):
         pass
+
+    # Se target_portion_of_balance e' 0 per un'apertura, converti in hold
+    if data["operation"] == "open" and data.get("target_portion_of_balance", 0.0) <= 0.0:
+        data["operation"] = "hold"
+        data["reason"] = f"Target portion pari a 0: convertito in hold. Segnale originale: {data.get('reason', '')}"[:300]
 
     return data
 
