@@ -434,6 +434,66 @@ class SynFuturesTrader:
 
         raise RuntimeError(f"Impossibile ritirare ${amount:.2f} USDC dal Gate")
 
+    def release_funds(self, target_usdc: float = 0.0) -> Dict[str, Any]:
+        """
+        Chiude posizioni se necessario e ritira USDC dal Gate di SynFutures verso il wallet Base.
+        Se target_usdc <= 0, ritira tutto il saldo disponibile sul Gate (e chiude posizioni aperte).
+        """
+        status = self.get_account_status()
+        gate_balance = float(status.get("balance_usd", 0.0))
+        open_positions = list(status.get("open_positions", []))
+
+        closed_positions = []
+        # 1. Se il saldo libero sul Gate è inferiore all'importo richiesto e ci sono posizioni aperte,
+        # chiudile per liberare margine
+        should_close = (target_usdc <= 0 and open_positions) or (target_usdc > 0 and gate_balance < target_usdc and open_positions)
+        if should_close:
+            for pos in open_positions:
+                sym = pos.get("symbol")
+                if sym:
+                    try:
+                        logger.info(f"[SynFuturesTrader] Chiusura posizione {sym} per liberare fondi...")
+                        norm_sym = self.normalize_symbol(sym)
+                        c_res = self._make_request("POST", "/order/close", {"symbol": norm_sym})
+                        closed_positions.append({"symbol": sym, "result": c_res})
+                    except Exception as err:
+                        logger.warning(f"Errore chiusura posizione {sym}: {err}")
+            time.sleep(2)
+            status = self.get_account_status()
+            gate_balance = float(status.get("balance_usd", 0.0))
+
+        # 2. Ritira USDC dal Gate verso il wallet Base L2
+        to_withdraw = gate_balance if target_usdc <= 0 else min(target_usdc, gate_balance)
+        withdrawn = 0.0
+        min_withdraw = 0.50
+        if to_withdraw >= min_withdraw:
+            try:
+                logger.info(f"[SynFuturesTrader] Ritiro di ${to_withdraw:.2f} USDC dal Gate al wallet...")
+                self.withdraw_usdc(to_withdraw)
+                withdrawn = to_withdraw
+            except Exception as w_err:
+                logger.error(f"Errore prelievo dal Gate: {w_err}")
+                return {
+                    "status": "error",
+                    "message": f"Prelievo dal Gate non riuscito: {w_err}",
+                    "closed_positions": closed_positions,
+                    "gate_balance": gate_balance
+                }
+
+        wallet_usdc = 0.0
+        if self.client:
+            wallet_usdc = self.client.balance_of_float(config.USDC)
+
+        return {
+            "status": "success",
+            "withdrawn_usd": round(withdrawn, 2),
+            "target_requested": target_usdc,
+            "closed_positions": closed_positions,
+            "gate_balance": round(gate_balance - withdrawn, 2),
+            "wallet_usdc": round(wallet_usdc, 2),
+            "message": f"Ritirati ${withdrawn:.2f} USDC dal Gate (saldo wallet: ${wallet_usdc:.2f})"
+        }
+
     def ensure_usdc_balance(self) -> Optional[Dict[str, Any]]:
         """
         Auto-refuel: Se il saldo USDC nel wallet e' sotto soglia ma c'e' ETH spendibile,

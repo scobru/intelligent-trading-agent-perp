@@ -102,3 +102,21 @@ def test_execute_signal_catches_unhandled_exceptions():
     res = trader.execute_signal(order)
     assert res.get("status") == "error"
     assert "Critical network error" in res.get("message", "")
+
+
+def test_synfutures_release_funds():
+    trader = SynFuturesTrader(service_url="http://mock-service", account_address="0x14d0E25Bc1c094938c25984a06bbcDa6a632FA28")
+    trader.get_account_status = MagicMock(return_value={
+        "balance_usd": 30.0,
+        "open_positions": [{"symbol": "BTC-USDC-LINK", "side": "LONG"}]
+    })
+    trader.withdraw_usdc = MagicMock(return_value={"status": "ok"})
+    trader._make_request = MagicMock(return_value={"status": "closed"})
+    trader.client = MagicMock()
+    trader.client.balance_of_float.return_value = 30.0
+
+    res = trader.release_funds(target_usdc=30.0)
+    assert res["status"] == "success"
+    assert res["withdrawn_usd"] == 30.0
+    trader.withdraw_usdc.assert_called_with(30.0)
+
