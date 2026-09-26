@@ -8,6 +8,7 @@ from synfutures_trader import SynFuturesTrader
 def test_dashboard_imports_db_utils():
     import dashboard
     assert hasattr(dashboard, "db_utils"), "dashboard.py must have db_utils imported"
+    assert hasattr(dashboard, "config"), "dashboard.py must have config imported"
 
 
 def test_clean_and_parse_json_strips_safety_preamble():
@@ -119,4 +120,66 @@ def test_synfutures_release_funds():
     assert res["status"] == "success"
     assert res["withdrawn_usd"] == 30.0
     trader.withdraw_usdc.assert_called_with(30.0)
+
+
+def test_dashboard_deposit_gate_handler():
+    import dashboard
+    from io import BytesIO
+
+    handler = dashboard.DashboardHandler.__new__(dashboard.DashboardHandler)
+    body_bytes = b'{"amount": 10.0}'
+    handler.headers = {
+        "X-Run-Token": "secret",
+        "Content-Length": str(len(body_bytes))
+    }
+    handler.rfile = BytesIO(body_bytes)
+    handler._json = MagicMock()
+    handler.send_response = MagicMock()
+    handler.end_headers = MagicMock()
+
+    # With matching token and specified amount
+    with patch.object(dashboard, "RUN_TOKEN", "secret"):
+        with patch("synfutures_trader.SynFuturesTrader") as mock_trader_cls:
+            mock_trader = MagicMock()
+            mock_trader.deposit_usdc.return_value = {"txHash": "0xabc"}
+            mock_trader_cls.return_value = mock_trader
+
+            handler.path = "/api/deposit_gate"
+            handler.do_POST()
+
+            handler._json.assert_called_once_with(200, {"status": "success", "result": {"txHash": "0xabc"}, "amount": 10.0})
+            mock_trader.deposit_usdc.assert_called_once_with(10.0)
+
+
+def test_dashboard_deposit_gate_auto_balance_and_empty():
+    import dashboard
+    from io import BytesIO
+
+    handler = dashboard.DashboardHandler.__new__(dashboard.DashboardHandler)
+    body_bytes = b'{"amount": 0}'
+    handler.headers = {
+        "X-Run-Token": "secret",
+        "Content-Length": str(len(body_bytes))
+    }
+    handler.rfile = BytesIO(body_bytes)
+    handler._json = MagicMock()
+    handler.send_response = MagicMock()
+    handler.end_headers = MagicMock()
+
+    # When wallet has 0 USDC, should return 400
+    with patch.object(dashboard, "RUN_TOKEN", "secret"):
+        with patch("synfutures_trader.SynFuturesTrader") as mock_trader_cls:
+            mock_trader = MagicMock()
+            mock_trader.client.balance_of_float.return_value = 0.0
+            mock_trader_cls.return_value = mock_trader
+
+            handler.path = "/api/deposit_gate"
+            handler.do_POST()
+
+            handler._json.assert_called_once()
+            args = handler._json.call_args[0]
+            assert args[0] == 400
+            assert "Nessun USDC disponibile" in args[1]["message"]
+
+
 

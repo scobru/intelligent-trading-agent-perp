@@ -27,6 +27,7 @@ load_dotenv()
 
 PORT = int(os.getenv("DASHBOARD_PORT", os.getenv("PORT", "3000")))
 SQLITE_DB_PATH = os.getenv("SQLITE_DB_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "trading_agent.db"))
+import config
 import db_utils  # noqa: E402
 RUN_TOKEN = os.getenv("DASHBOARD_RUN_TOKEN", "")
 PAPER_TRADING = os.getenv("PAPER_TRADING", "false").strip().lower() in ("1", "true", "yes", "on")
@@ -311,20 +312,39 @@ document.querySelectorAll('#symbol-pills .pill').forEach(b => b.addEventListener
 }));
 async function depositGate() {
   if (!confirm('Vuoi depositare tutti gli USDC disponibili nel wallet sul contratto Gate di SynFutures?')) return;
+  let token = '';
+  try { token = localStorage.getItem('runToken') || ''; } catch (e) {}
+  if (!token) {
+    token = prompt('Token di autorizzazione (DASHBOARD_RUN_TOKEN):') || '';
+    if (!token) return;
+  }
+  const btn = $('deposit-btn');
+  const prevText = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Deposito in corso...'; }
   try {
-    const res = await fetch('/api/deposit_gate', {
+    const r = await fetch('/api/deposit_gate', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Run-Token': token
+      },
       body: JSON.stringify({ amount: 0 })
-    }).then(r => r.json());
-    if (res.status === 'success') {
+    });
+    const res = await r.json().catch(() => ({}));
+    if (r.ok && res.status === 'success') {
+      try { localStorage.setItem('runToken', token); } catch (e) {}
       alert('Deposito sul Gate completato con successo!');
       setTimeout(load, 2000);
+    } else if (r.status === 403) {
+      try { localStorage.removeItem('runToken'); } catch (e) {}
+      alert('Errore autorizzazione: ' + (res.message || 'Token non valido o DASHBOARD_RUN_TOKEN non configurato.'));
     } else {
-      alert('Errore deposito Gate: ' + (res.message || JSON.stringify(res)));
+      alert('Errore deposito Gate: ' + (res.message || res.error || r.statusText || 'Errore sconosciuto'));
     }
   } catch(e) {
     alert('Errore chiamata: ' + e);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = prevText; }
   }
 }
 
@@ -614,7 +634,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
-        if path not in ("/api/run", "/api/pause", "/api/resume", "/api/release_funds", "/api/withdraw_gate"):
+        if path not in ("/api/run", "/api/pause", "/api/resume", "/api/release_funds", "/api/withdraw_gate", "/api/deposit_gate"):
             self.send_response(404)
             self.end_headers()
             return
@@ -672,9 +692,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 from synfutures_trader import SynFuturesTrader
                 trader = SynFuturesTrader()
                 if amount <= 0 and trader.client:
-                    amount = trader.client.balance_of_float(config.USDC)
+                    amount = float(trader.client.balance_of_float(config.USDC) or 0.0)
+                if amount <= 0:
+                    self._json(400, {"status": "error", "message": "Nessun USDC disponibile nel wallet da depositare (saldo: 0.00 USDC)."})
+                    return
                 res = trader.deposit_usdc(amount)
-                self._json(200, {"status": "success", "result": res})
+                self._json(200, {"status": "success", "result": res, "amount": amount})
             except Exception as exc:
                 self._json(500, {"status": "error", "message": str(exc)})
             return

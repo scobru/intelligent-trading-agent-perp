@@ -9,6 +9,7 @@ from synfutures_trader import SynFuturesTrader
 from paper import PAPER_TRADING, PAPER_START_USDC, PaperSynFuturesTrader
 import os
 import json
+import config
 import db_utils
 import sys
 from dotenv import load_dotenv
