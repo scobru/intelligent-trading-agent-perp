@@ -216,3 +216,6 @@ dist/
 *.sqlite
 *.sqlite3
 
+# Graphify
+graphify-out/
+
