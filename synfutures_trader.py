@@ -372,15 +372,19 @@ class SynFuturesTrader:
                         "margin_usd": round(margin_val, 2),
                     })
 
-        # Valore complessivo: Gate + margine e P&L non realizzato delle posizioni
-        total_value = total_usd + sum(p["margin_usd"] + p["pnl_usd"] for p in open_positions)
+        # Valore complessivo: Gate + USDC nel wallet + margine e P&L non realizzato delle posizioni
+        wallet_bals = self.get_wallet_balances(address)
+        wallet_usdc = float(wallet_bals.get("wallet_usdc_balance", 0.0) or 0.0)
+        total_value = total_usd + wallet_usdc + sum(p["margin_usd"] + p["pnl_usd"] for p in open_positions)
         return {
             "balance_usd": round(total_usd, 2),
+            "gate_balance_usd": round(total_usd, 2),
+            "wallet_usdc": round(wallet_usdc, 2),
             "total_value_usd": round(total_value, 2),
             "open_positions": open_positions,
             "mode": "live",
             "wallet_address": address,
-            **self.get_wallet_balances(address),
+            **wallet_bals,
         }
 
     # ----------------------------------------------------------------------

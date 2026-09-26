@@ -54,14 +54,22 @@ try:
         except Exception as exc:
             print(f"⚠️ Auto-refuel non riuscito (proseguo con saldo attuale): {exc}")
 
-        # Saldo Wallet su Base (se disponibile)
+        # Saldo Wallet su Base (se disponibile) ed eventuale deposito automatico su Gate
         if getattr(bot, "client", None) and bot.client:
             try:
                 eth_bal = bot.client.eth_balance()
                 usdc_bal = bot.client.balance_of_float(config.USDC)
                 print(f"💼 Saldo Wallet Base: {eth_bal:.5f} ETH | ${usdc_bal:.2f} USDC")
-            except Exception:
-                pass
+
+                if getattr(config, "AUTO_DEPOSIT_GATE", True):
+                    min_dep = getattr(config, "MIN_GATE_DEPOSIT", 1.0)
+                    if usdc_bal >= min_dep:
+                        print(f"📥 Rilevati ${usdc_bal:.2f} USDC nel wallet. Deposito sul Gate SynFutures...")
+                        dep_res = bot.deposit_usdc(usdc_bal)
+                        print(f"✅ Deposito Gate completato: {dep_res}")
+                        time.sleep(2)
+            except Exception as exc:
+                print(f"⚠️ Deposito automatico Gate non eseguito: {exc}")
 
     # Calcolo delle informazioni in input per Ticker: solo le coppie che
     # esistono davvero come perpetual su SynFutures

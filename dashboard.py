@@ -639,6 +639,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json(500, {"status": "error", "message": str(exc)})
             return
 
+        if path == "/api/deposit_gate":
+            amount = 0.0
+            try:
+                clen = int(self.headers.get("Content-Length", 0))
+                if clen > 0:
+                    body = json.loads(self.rfile.read(clen).decode("utf-8"))
+                    amount = float(body.get("amount", 0.0) or body.get("amount_usd", 0.0))
+            except Exception:
+                pass
+            try:
+                from synfutures_trader import SynFuturesTrader
+                trader = SynFuturesTrader()
+                if amount <= 0 and trader.client:
+                    amount = trader.client.balance_of_float(config.USDC)
+                res = trader.deposit_usdc(amount)
+                self._json(200, {"status": "success", "result": res})
+            except Exception as exc:
+                self._json(500, {"status": "error", "message": str(exc)})
+            return
+
         if path == "/api/run":
             if db_utils.is_bot_paused():
                 pinfo = db_utils.get_pause_info()
