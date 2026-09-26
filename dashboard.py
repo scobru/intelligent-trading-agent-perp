@@ -90,6 +90,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   </div>
   <div class="header-actions">
     <span class="updated" id="updated"></span>
+    <button class="btn" id="deposit-btn" onclick="depositGate()" style="background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(34, 197, 94, 0.4); color: #22c55e;">📥 Deposita su Gate</button>
     <button class="btn" id="run">⚡ Esegui ciclo ora</button>
   </div>
 </header>
@@ -308,6 +309,25 @@ document.querySelectorAll('#symbol-pills .pill').forEach(b => b.addEventListener
   document.querySelectorAll('#symbol-pills .pill').forEach(x => x.classList.toggle('active', x === b));
   tvSymbol = b.dataset.symbol; initTradingView();
 }));
+async function depositGate() {
+  if (!confirm('Vuoi depositare tutti gli USDC disponibili nel wallet sul contratto Gate di SynFutures?')) return;
+  try {
+    const res = await fetch('/api/deposit_gate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ amount: 0 })
+    }).then(r => r.json());
+    if (res.status === 'success') {
+      alert('Deposito sul Gate completato con successo!');
+      setTimeout(load, 2000);
+    } else {
+      alert('Errore deposito Gate: ' + (res.message || JSON.stringify(res)));
+    }
+  } catch(e) {
+    alert('Errore chiamata: ' + e);
+  }
+}
+
 ITA.setupRun(load);
 load();
 setInterval(load, 15000);
