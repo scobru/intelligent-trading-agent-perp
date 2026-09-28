@@ -10,7 +10,6 @@ condivisi con le dashboard dei bot fratelli (degen, yield). Il pulsante
 dashboard non ha login e un ciclo puo' firmare transazioni.
 """
 
-import hmac
 import json
 import os
 import sqlite3
@@ -28,6 +27,7 @@ load_dotenv()
 PORT = int(os.getenv("DASHBOARD_PORT", os.getenv("PORT", "3000")))
 SQLITE_DB_PATH = os.getenv("SQLITE_DB_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "trading_agent.db"))
 import config
+import dashboard_auth  # noqa: E402
 import db_utils  # noqa: E402
 RUN_TOKEN = os.getenv("DASHBOARD_RUN_TOKEN", "")
 PAPER_TRADING = os.getenv("PAPER_TRADING", "false").strip().lower() in ("1", "true", "yes", "on")
@@ -589,16 +589,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _is_auth_valid(self) -> bool:
-        if not RUN_TOKEN:
-            return False
-        token = self.headers.get("X-Run-Token", "") or self.headers.get("X-Admin-Token", "")
-        if not token and "Authorization" in self.headers:
-            auth = self.headers.get("Authorization", "")
-            if auth.startswith("Bearer "):
-                token = auth[7:].strip()
-            else:
-                token = auth.strip()
-        return bool(token and hmac.compare_digest(token, RUN_TOKEN))
+        return dashboard_auth.is_run_token_valid(self.headers, RUN_TOKEN)
 
     def do_GET(self):
         parsed = urlparse(self.path)
