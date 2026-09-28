@@ -398,8 +398,25 @@ export class SynFuturesService {
         const allowance = await erc20.allowance(signer.address, this.sdk.contracts.gate.address);
         if (allowance.lt(amountParsed)) await (await erc20.approve(this.sdk.contracts.gate.address, ethers.constants.MaxUint256)).wait();
 
-        const tx = await this.sdk.deposit(signer, token.address, amountParsed);
-        return { success: true, txHash: tx.hash };
+        const balanceBefore = await this.sdk.contracts.gate.reserveOf(token.address, signer.address);
+
+        try {
+            const tx = await this.sdk.deposit(signer, token.address, amountParsed);
+            return { success: true, txHash: tx.hash };
+        } catch (error: any) {
+            const errorMsg = error.message || String(error);
+            if (errorMsg.includes("toString") || errorMsg.includes("handleReceipt")) {
+                console.log(`[WARN] SDK bug handleReceipt during deposit. Checking Gate balance...`);
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                const balanceAfter = await this.sdk.contracts.gate.reserveOf(token.address, signer.address);
+                if (balanceAfter.gt(balanceBefore)) {
+                    console.log(`[OK] Deposit verified on-chain despite SDK receipt error.`);
+                    return { success: true, txHash: 'confirmed-on-chain', warning: 'SDK receipt parsing error' };
+                }
+            }
+            console.error(`[ERR] deposit error:`, error);
+            throw error;
+        }
     }
 
     /**
@@ -410,8 +427,26 @@ export class SynFuturesService {
         const signer = this.getSigner();
         const token = await this.sdk.ctx.getTokenInfo(tokenSymbol);
         const amountParsed = ethers.utils.parseUnits(amount, token.decimals);
-        const tx = await this.sdk.withdraw(signer, token.address, amountParsed);
-        return { success: true, txHash: tx.hash };
+
+        const balanceBefore = await this.sdk.contracts.gate.reserveOf(token.address, signer.address);
+
+        try {
+            const tx = await this.sdk.withdraw(signer, token.address, amountParsed);
+            return { success: true, txHash: tx.hash };
+        } catch (error: any) {
+            const errorMsg = error.message || String(error);
+            if (errorMsg.includes("toString") || errorMsg.includes("handleReceipt")) {
+                console.log(`[WARN] SDK bug handleReceipt during withdraw. Checking Gate balance...`);
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                const balanceAfter = await this.sdk.contracts.gate.reserveOf(token.address, signer.address);
+                if (balanceAfter.lt(balanceBefore)) {
+                    console.log(`[OK] Withdraw verified on-chain despite SDK receipt error.`);
+                    return { success: true, txHash: 'confirmed-on-chain', warning: 'SDK receipt parsing error' };
+                }
+            }
+            console.error(`[ERR] withdraw error:`, error);
+            throw error;
+        }
     }
 
     /**
