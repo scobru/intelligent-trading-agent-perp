@@ -98,3 +98,10 @@ AUTO_DEPOSIT_GATE = _b("AUTO_DEPOSIT_GATE", True)         # Deposita automaticam
 GATE_MARGIN_BUFFER = _f("GATE_MARGIN_BUFFER", 1.20)       # Cuscinetto sicurezza (+20%) sul margine richiesto
 MIN_GATE_DEPOSIT = _f("MIN_GATE_DEPOSIT", 1.0)            # Deposito minimo in USDC
 MIN_NOTIONAL_USD = _f("MIN_NOTIONAL_USD", 70.0)           # Nozionale minimo SynFutures V3 su Base
+
+# ---------------------------------------------------------------- Rischio
+MAX_LEVERAGE = _f("MAX_LEVERAGE", 5.0)                    # Tetto alla leva richiesta dal modello
+CLOSE_MIN_ABS_PNL_USD = _f("CLOSE_MIN_ABS_PNL_USD", 1.5)  # Sotto questo |PnL| una chiusura discrezionale costa piu' delle fee: viene saltata
+DEFAULT_STOP_LOSS_PERCENT = _f("DEFAULT_STOP_LOSS_PERCENT", 2.0)
+WATCHDOG_INTERVAL_SECONDS = _i("WATCHDOG_INTERVAL_SECONDS", 60)  # Frequenza del controllo stop loss (0 = disattivato)
+POSITION_META_FILE = os.getenv("POSITION_META_FILE", "position_meta.json")

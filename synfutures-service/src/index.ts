@@ -11,6 +11,20 @@ import { ethers } from 'ethers';
 import path from 'path';
 import { SynFuturesService } from './synfutures';
 
+// L'SDK (web3-core) stampa uno stack trace per un bug noto nel parsing della receipt
+// anche quando la tx e' andata a buon fine: la verifica on-chain la fa synfutures.ts.
+const RECEIPT_NOISE = 'handleReceipt exception';
+for (const level of ['log', 'error', 'warn'] as const) {
+    const original = console[level].bind(console);
+    console[level] = (...args: any[]) => {
+        if (args.some(a => typeof a === 'string' && a.includes(RECEIPT_NOISE))) {
+            original('[WARN] SDK handleReceipt parsing error ignorato (tx verificata on-chain)');
+            return;
+        }
+        original(...args);
+    };
+}
+
 // Load environment variables
 dotenv.config(); // Loads .env from current working directory
 dotenv.config({ path: path.resolve(__dirname, '../../.env') }); // Falls back to root .env if running from subdirectory
@@ -221,11 +235,11 @@ app.get('/portfolio/:address', asyncHandler(async (req, res) => {
         
         // Try multiple sources for margin, prioritizing explicitly named margin fields
         const marginValue = pos.margin?.toString() 
-            || acc.margin 
-            || acc.lockedMargin 
-            || acc.altMargin 
+            || acc.margin?.toString() 
+            || acc.lockedMargin?.toString() 
+            || acc.altMargin?.toString() 
             || pos.balance?.toString() // Sometimes 'balance' in position acts as margin
-            || acc.balance 
+            || acc.balance?.toString() 
             || '0';
 
         // Calculate entry price if not explicitly provided

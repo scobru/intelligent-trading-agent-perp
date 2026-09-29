@@ -53,8 +53,16 @@ if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
     TELEGRAM_PID=$!
 fi
 
+# 3c. Stop loss watchdog (solo live: in paper lo stop loss e' gestito da paper.py)
+WATCHDOG_PID=""
+if [ "${PAPER_TRADING:-false}" != "true" ]; then
+    python watchdog.py &
+    WATCHDOG_PID=$!
+fi
+
 # Cleanup on exit
 cleanup() {
+    [ -n "$WATCHDOG_PID" ] && kill $WATCHDOG_PID 2>/dev/null || true
     echo "Stopping background services..."
     [ -n "$SERVICE_PID" ] && kill $SERVICE_PID 2>/dev/null || true
     kill $DASHBOARD_PID 2>/dev/null || true
