@@ -586,6 +586,92 @@ class SynFuturesTrader:
         }
 
     # ----------------------------------------------------------------------
+    #                  STOP LOSS SOFTWARE & GUARDIA CHIUSURE
+    # ----------------------------------------------------------------------
+    def _load_position_meta(self) -> Dict[str, Any]:
+        try:
+            with open(config.POSITION_META_FILE, "r") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _save_position_meta(self, meta: Dict[str, Any]) -> None:
+        try:
+            with open(config.POSITION_META_FILE, "w") as f:
+                json.dump(meta, f, indent=2)
+        except Exception as err:
+            logger.warning(f"Impossibile salvare {config.POSITION_META_FILE}: {err}")
+
+    def _remember_position_meta(self, coin: str, stop_loss_percent: float) -> None:
+        meta = self._load_position_meta()
+        meta[coin] = {"stop_loss_percent": stop_loss_percent, "opened_at": time.time()}
+        self._save_position_meta(meta)
+
+    def _forget_position_meta(self, coin: str) -> None:
+        meta = self._load_position_meta()
+        if meta.pop(coin, None) is not None:
+            self._save_position_meta(meta)
+
+    @staticmethod
+    def adverse_move_percent(pos: Dict[str, Any]) -> float:
+        """Movimento di prezzo sfavorevole (in %, positivo = contro la posizione)."""
+        entry = float(pos.get("entry_price") or 0)
+        mark = float(pos.get("mark_price") or 0)
+        if entry <= 0 or mark <= 0:
+            return 0.0
+        move = (mark - entry) / entry * 100
+        return -move if pos.get("side") == "long" else move
+
+    def _find_position(self, coin: str) -> Optional[Dict[str, Any]]:
+        for pos in self.get_account_status().get("open_positions", []):
+            if pos.get("symbol") == coin:
+                return pos
+        return None
+
+    def _should_skip_discretionary_close(self, coin: str) -> Optional[str]:
+        """Motivo per cui una chiusura decisa dal modello va saltata, o None."""
+        try:
+            pos = self._find_position(coin)
+        except Exception as err:
+            logger.warning(f"Guardia close: stato posizione non disponibile ({err}), procedo con la chiusura.")
+            return None
+        if not pos:
+            return None
+        min_pnl = float(getattr(config, "CLOSE_MIN_ABS_PNL_USD", 1.5))
+        pnl = float(pos.get("pnl_usd") or 0)
+        sl = float(self._load_position_meta().get(coin, {}).get("stop_loss_percent", config.DEFAULT_STOP_LOSS_PERCENT))
+        if abs(pnl) < min_pnl and self.adverse_move_percent(pos) < sl:
+            return (f"|PnL| ${abs(pnl):.2f} < ${min_pnl:.2f} (le fee di chiusura costano di piu') "
+                    f"e stop loss {sl}% non raggiunto")
+        return None
+
+    def enforce_stop_losses(self, account_status: Optional[Dict[str, Any]] = None) -> list:
+        """
+        Chiude ogni posizione il cui prezzo si e' mosso contro di essa di almeno
+        stop_loss_percent (salvato all'apertura). Non esiste un ordine di stop
+        on-chain: questo controllo va eseguito spesso (vedi watchdog.py).
+        """
+        status = account_status or self.get_account_status()
+        meta = self._load_position_meta()
+        closed = []
+        for pos in status.get("open_positions", []):
+            coin = pos.get("symbol")
+            sl = float(meta.get(coin, {}).get("stop_loss_percent", config.DEFAULT_STOP_LOSS_PERCENT))
+            adverse = self.adverse_move_percent(pos)
+            if adverse < sl:
+                continue
+            logger.warning(f"🛑 STOP LOSS {coin}: movimento avverso {adverse:.2f}% >= {sl}%. Chiusura.")
+            try:
+                res = self._make_request("POST", "/order/close", {"symbol": self.normalize_symbol(coin)})
+                self._forget_position_meta(coin)
+                closed.append({"symbol": coin, "side": pos.get("side"), "pnl_usd": pos.get("pnl_usd"),
+                               "adverse_percent": round(adverse, 2), "result": res})
+            except Exception as err:
+                logger.error(f"Stop loss {coin}: chiusura fallita: {err}")
+        return closed
+
+    # ----------------------------------------------------------------------
     #                        ESECUZIONE SEGNALE AI
     # ----------------------------------------------------------------------
     def execute_signal(self, order_json: Dict[str, Any]) -> Dict[str, Any]:
@@ -617,16 +703,23 @@ class SynFuturesTrader:
 
             # 2. Operazione CLOSE
             if op == "close":
+                if not order_json.get("force"):
+                    skip = self._should_skip_discretionary_close(coin)
+                    if skip:
+                        logger.info(f"[SynFuturesTrader] CLOSE saltata per {coin}: {skip}")
+                        return {"status": "hold", "message": f"Close skipped for {coin}: {skip}"}
                 logger.info(f"[SynFuturesTrader] Market CLOSE per {norm_symbol} ({raw_symbol})")
                 res = self._make_request("POST", "/order/close", {"symbol": norm_symbol})
                 logger.info(f"✅ Posizione chiusa: {res}")
+                self._forget_position_meta(coin)
                 return res
 
             # 3. Operazione OPEN
             direction = order_json["direction"] # 'long' o 'short'
             portion = float(order_json["target_portion_of_balance"])
-            leverage = float(order_json.get("leverage", 1.0))
-            stop_loss_percent = float(order_json.get("stop_loss_percent", 2.0))
+            max_lev = float(getattr(config, "MAX_LEVERAGE", 5.0))
+            leverage = max(1.0, min(max_lev, float(order_json.get("leverage", 1.0))))
+            stop_loss_percent = float(order_json.get("stop_loss_percent", getattr(config, "DEFAULT_STOP_LOSS_PERCENT", 2.0)))
 
             # Recupera saldo account iniziale
             account_status = self.get_account_status()
@@ -643,8 +736,8 @@ class SynFuturesTrader:
             notional = target_margin_usd * leverage
             if notional < min_notional:
                 logger.info(f"⚠️ Nozionale ${notional:.2f} < minimo richiesto (${min_notional:.2f}). Aggiusto leva/margine...")
-                if target_margin_usd * 10 >= min_notional:
-                    leverage = min(10.0, round(min_notional / target_margin_usd, 1))
+                if target_margin_usd * max_lev >= min_notional:
+                    leverage = min(max_lev, round(min_notional / target_margin_usd, 1))
                 else:
                     target_margin_usd = min_notional / leverage
 
@@ -670,8 +763,8 @@ class SynFuturesTrader:
                     target_margin_usd = min(balance_usd, max(target_margin_usd, balance_usd * portion))
                     notional = target_margin_usd * leverage
                     if notional < min_notional:
-                        if target_margin_usd * 10 >= min_notional:
-                            leverage = min(10.0, round(min_notional / target_margin_usd, 1))
+                        if target_margin_usd * max_lev >= min_notional:
+                            leverage = min(max_lev, round(min_notional / target_margin_usd, 1))
                         else:
                             target_margin_usd = min(balance_usd, min_notional / leverage)
 
@@ -705,6 +798,8 @@ class SynFuturesTrader:
 
             res = self._make_request("POST", "/order/market", order_payload)
             logger.info(f"✅ Ordine inviato con successo: {res}")
+
+            self._remember_position_meta(self.denormalize_symbol(norm_symbol), stop_loss_percent)
 
             # Arricchisci risposta per tracciamento stop loss
             if isinstance(res, dict):

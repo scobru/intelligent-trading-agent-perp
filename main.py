@@ -12,6 +12,7 @@ import json
 import config
 import db_utils
 import sys
+import time
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -101,6 +102,11 @@ try:
 
     print("💰 Recupero stato conto e posizioni su SynFutures...")
     account_status = bot.get_account_status()
+    if hasattr(bot, "enforce_stop_losses"):
+        sl_closed = bot.enforce_stop_losses(account_status)
+        if sl_closed:
+            print(f"🛑 Stop loss software eseguiti: {[(c['symbol'], c['adverse_percent']) for c in sl_closed]}")
+            account_status = bot.get_account_status()
     print(f"   Saldo USD: ${account_status.get('balance_usd', 0.0):.2f}")
     print(f"   Posizioni aperte: {len(account_status.get('open_positions', []))}")
     if account_status.get("paper_trading"):

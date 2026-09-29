@@ -183,3 +183,41 @@ def test_dashboard_deposit_gate_auto_balance_and_empty():
 
 
 
+
+
+def _trader_with_position(pnl, entry, mark, side="long", meta=None):
+    trader = SynFuturesTrader(service_url="http://mock-service", account_address="0xabc")
+    pos = {"symbol": "ETH", "side": side, "size": 0.02, "entry_price": entry,
+           "mark_price": mark, "pnl_usd": pnl, "leverage": "3x", "margin_usd": 18.5}
+    trader.get_account_status = MagicMock(return_value={"balance_usd": 0.0, "open_positions": [pos]})
+    trader._load_position_meta = MagicMock(return_value=meta or {})
+    trader._forget_position_meta = MagicMock()
+    trader._make_request = MagicMock(return_value={"success": True})
+    trader.get_tradable_markets = MagicMock(return_value={})
+    return trader
+
+
+def test_discretionary_close_skipped_for_tiny_pnl():
+    trader = _trader_with_position(-0.04, 2600, 2599)
+    res = trader.execute_signal({"operation": "close", "symbol": "ETH", "direction": "long",
+                                 "target_portion_of_balance": 0.0, "leverage": 1,
+                                 "stop_loss_percent": 1.0, "reason": "x"})
+    assert res["status"] == "hold"
+    trader._make_request.assert_not_called()
+
+
+def test_stop_loss_closes_on_adverse_move():
+    trader = _trader_with_position(-1.0, 2600, 2540, meta={"ETH": {"stop_loss_percent": 2.0}})
+    closed = trader.enforce_stop_losses()
+    assert [c["symbol"] for c in closed] == ["ETH"]
+    trader._make_request.assert_called_once()
+
+
+def test_stop_loss_not_triggered_within_limit():
+    trader = _trader_with_position(-0.1, 2600, 2580, meta={"ETH": {"stop_loss_percent": 2.0}})
+    assert trader.enforce_stop_losses() == []
+
+
+def test_short_adverse_move_is_price_up():
+    trader = _trader_with_position(-1.0, 2600, 2660, side="short")
+    assert trader.adverse_move_percent(trader.get_account_status()["open_positions"][0]) > 2

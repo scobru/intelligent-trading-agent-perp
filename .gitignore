@@ -219,3 +219,4 @@ dist/
 # Graphify
 graphify-out/
 
+position_meta.json
