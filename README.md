@@ -4,6 +4,8 @@
 
 <br clear="left">
 
+> ⚠️ **Software sperimentale, non consulenza finanziaria.** Il bot opera con denaro reale su Base e può perdere in parte o del tutto il capitale che gli affidi. Parti in paper trading o dry-run; in live usa un wallet dedicato e solo importi che puoi permetterti di perdere. Dettagli nella sezione **Avvertenza** in fondo.
+
 ![Trading Agent](/img.jpg)
 
 **Intelligent Trading Agent** è un agente di trading quantitativo e AI-driven basato sulla struttura di [rizzo-trading-agent](https://github.com/Rizzo-AI-Academy/rizzo-trading-agent), specificamente adattato per operare sul DEX perpetuo decentralizzato **SynFutures V3** (su rete **Base**) e potenziato tramite i modelli LLM accessibili via **OpenRouter** (`openrouter/free`).
@@ -218,6 +220,24 @@ Le sorgenti sono gli SVG; i raster si rigenerano con `python tools/generate_icon
 (richiede `pip install cairosvg pillow`, dipendenze di solo sviluppo).
 
 ---
+
+## ⚠️ Avvertenza
+
+Questo software è sperimentale ed è fornito "così com'è", senza garanzie di alcun tipo
+(vedi la licenza MIT). Non è consulenza finanziaria né un invito a investire.
+
+- **Puoi perdere denaro.** Bug, decisioni sbagliate del modello, slippage, exploit dei protocolli,
+  oracoli manipolati e liquidazioni possono far perdere in parte o del tutto il capitale.
+- **Le decisioni le prende un LLM.** Può sbagliare o comportarsi in modo imprevedibile: i limiti
+  dell'esecutore riducono il danno, non lo azzerano. I rendimenti passati, anche in paper, non
+  garantiscono quelli futuri.
+- **Parti in paper o dry-run.** In live usa un wallet dedicato al bot, con importi che puoi
+  permetterti di perdere, e non riutilizzare quella chiave privata altrove.
+- **Proteggi le chiavi.** La chiave privata va solo nelle variabili d'ambiente del deploy: non
+  committarla mai. Senza `DASHBOARD_RUN_TOKEN` i comandi della dashboard restano disattivati:
+  impostalo con un valore lungo e casuale prima di esporla su Internet.
+- **Leggi e tasse.** Sei responsabile del rispetto delle norme e degli obblighi fiscali del tuo paese.
+- **Ordini perp.** Qui `DRY_RUN` blocca solo gli swap on-chain (refuel, deposito sul Gate): gli ordini su SynFutures partono appena il microservizio ha la chiave. Per provare usa `PAPER_TRADING=true` (il `.env.example` parte così). Con la leva le perdite possono superare rapidamente il margine.
 
 ## 📜 Licenza
 Distribuito sotto licenza MIT. Ispirato ad Alpha Arena e Rizzo AI Academy.
