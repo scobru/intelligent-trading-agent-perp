@@ -8,8 +8,6 @@
 
 > ⚠️ **Experimental software, not financial advice.** The bot trades real money on Base and can lose some or all of the capital you give it. Start with paper trading or dry-run; when you go live, use a dedicated wallet and only amounts you can afford to lose. See the **Disclaimer** section at the bottom.
 
-![Trading Agent](/img.jpg)
-
 **Intelligent Trading Agent** is a quantitative, AI-driven trading agent based
 on the structure of [rizzo-trading-agent](https://github.com/Rizzo-AI-Academy/rizzo-trading-agent),
 adapted to trade on the decentralized perpetual DEX **SynFutures V3** (on
