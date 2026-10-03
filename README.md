@@ -4,240 +4,284 @@
 
 <br clear="left">
 
-> ⚠️ **Software sperimentale, non consulenza finanziaria.** Il bot opera con denaro reale su Base e può perdere in parte o del tutto il capitale che gli affidi. Parti in paper trading o dry-run; in live usa un wallet dedicato e solo importi che puoi permetterti di perdere. Dettagli nella sezione **Avvertenza** in fondo.
+**English** · [Italiano](README.it.md)
+
+> ⚠️ **Experimental software, not financial advice.** The bot trades real money on Base and can lose some or all of the capital you give it. Start with paper trading or dry-run; when you go live, use a dedicated wallet and only amounts you can afford to lose. See the **Disclaimer** section at the bottom.
 
 ![Trading Agent](/img.jpg)
 
-**Intelligent Trading Agent** è un agente di trading quantitativo e AI-driven basato sulla struttura di [rizzo-trading-agent](https://github.com/Rizzo-AI-Academy/rizzo-trading-agent), specificamente adattato per operare sul DEX perpetuo decentralizzato **SynFutures V3** (su rete **Base**) e potenziato tramite i modelli LLM accessibili via **OpenRouter** (`openrouter/free`).
+**Intelligent Trading Agent** is a quantitative, AI-driven trading agent based
+on the structure of [rizzo-trading-agent](https://github.com/Rizzo-AI-Academy/rizzo-trading-agent),
+adapted to trade on the decentralized perpetual DEX **SynFutures V3** (on
+**Base**) and powered by LLMs available through **OpenRouter**
+(`openrouter/free`).
 
-L’agente analizza dati di mercato intraday (15m), indicatori tecnici, sentiment, notizie e previsioni di serie temporali per formulare e piazzare automaticamente ordini di trading in leva su asset crypto principali (`BTC`, `ETH`).
+The agent analyzes intraday market data (15m), technical indicators,
+sentiment, news and time-series forecasts to build and automatically place
+leveraged orders on major crypto assets (`BTC`, `ETH`).
 
----
-
-## 🌟 Caratteristiche Principali
-
-- 🔄 **Integrazione SynFutures V3 (Base Chain)**: Esecuzione ordini perpetual (LONG/SHORT), chiusura posizioni e consultazione balance USDC tramite il microservizio Node.js dedicato (`synfutures-service`) basato sull'SDK ufficiale `@synfutures/oyster-sdk`.
-- 🧠 **Decision Engine OpenRouter (`openrouter/free`)**: Generazione automatica dei segnali di trading in formato JSON strutturato, validato e compatibile, minimizzando i costi delle API tramite il router gratuito di OpenRouter.
-- 📊 **Analisi Tecnica Intraday (15m)**: Indicatori multi-timeframe calcolati con `ta` e `ccxt` (EMA 20/50, MACD, RSI 7/14, ATR 3/14, Pivot Points Giornalieri e Orderbook Volume).
-- 🔮 **Machine Learning Forecasting**: Modelli predittivi basati su `Prophet` di Meta per stimare l'andamento dei prezzi a 15 minuti e ad 1 ora.
-- 🎭 **Sentiment & News Feed**: Integrazione dell'indice *Fear & Greed* 100% gratuito da **Alternative.me** (senza API key richiesta) e parsing in tempo reale delle ultime notizie da *CoinJournal RSS*.
-- 🐋 **Whale Alerts**: Monitoraggio dei flussi e transazioni di grandi capitali.
-- 🗄️ **Database & Logging**: Tracciamento di ogni operazione, segnale, snapshot di portafoglio ed errore su database locale leggero **SQLite** (`trading_agent.db`) senza necessità di server esterni.
+It is part of the [Intelligent Trading](https://github.com/scobru/intelligent-trading)
+suite of agents for Base.
 
 ---
 
-## 📁 Struttura del Progetto
+## 🌟 Main features
+
+- 🔄 **SynFutures V3 integration (Base chain)**: perpetual order execution
+  (LONG/SHORT), position closing and USDC balance checks through the dedicated
+  Node.js microservice (`synfutures-service`) built on the official
+  `@synfutures/oyster-sdk`.
+- 🧠 **OpenRouter decision engine (`openrouter/free`)**: trading signals
+  generated as structured, validated JSON, keeping API costs down with
+  OpenRouter's free router.
+- 📊 **Intraday technical analysis (15m)**: multi-timeframe indicators
+  computed with `ta` and `ccxt` (EMA 20/50, MACD, RSI 7/14, ATR 3/14, daily
+  pivot points and order book volume).
+- 🔮 **Machine learning forecasting**: predictive models based on Meta's
+  `Prophet` to estimate the price at 15 minutes and 1 hour.
+- 🎭 **Sentiment & news feed**: the 100% free *Fear & Greed* index from
+  **Alternative.me** (no API key needed) and real-time parsing of the latest
+  news from the *CoinJournal RSS* feed.
+- 🐋 **Whale alerts**: monitoring of large capital flows and transactions.
+- 🗄️ **Database & logging**: every operation, signal, portfolio snapshot and
+  error is tracked in a lightweight local **SQLite** database
+  (`trading_agent.db`), no external server needed.
+
+---
+
+## 📁 Project structure
 
 ```
 intelligent-trading-agent/
-├── synfutures-service/       # Microservizio Node.js (Oyster SDK SynFutures su Base)
+├── synfutures-service/       # Node.js microservice (SynFutures Oyster SDK on Base)
 │   ├── src/
-│   │   ├── index.ts          # Server REST API Express (porta 3100)
-│   │   └── synfutures.ts     # Wrapper Oyster SDK per transazioni on-chain
+│   │   ├── index.ts          # Express REST API server (port 3100)
+│   │   └── synfutures.ts     # Oyster SDK wrapper for on-chain transactions
 │   ├── package.json
 │   └── tsconfig.json
-├── main.py                   # Script principale: pipeline dati -> OpenRouter -> esecuzione SynFutures
-├── synfutures_trader.py      # Adapter di trading per SynFutures (sostituto di HyperLiquidTrader)
-├── paper.py                  # Conto perpetual virtuale per il paper trading
-├── dashboard.py              # Dashboard web (stile in static/dashboard.css|js)
-├── trading_agent.py          # Modulo decisionale LLM con OpenRouter (openrouter/free)
-├── indicators.py             # Analisi tecnica crypto a 15m con CCXT e TA
-├── forecaster.py             # Previsioni di prezzo con Prophet
-├── sentiment.py              # Recupero Fear & Greed Index
-├── news_feed.py              # Parsing feed RSS notizie crypto
-├── whalealert.py             # Monitoraggio transazioni balene
-├── utils.py                  # Controllo Stop Loss e deltas di stato
-├── db_utils.py               # Logger persistente SQLite (trading_agent.db)
-├── test_trading.py           # Script di test per ordini e verifica account
-├── system_prompt.txt         # Prompt di sistema per l'LLM
-├── formatted_system_prompt.txt # Esempio prompt assemblato
-├── account_status_old.json   # Cache storico posizioni
-├── requirements.txt          # Dipendenze Python
-└── .env.example              # Template variabili d'ambiente
+├── main.py                   # Main script: data pipeline -> OpenRouter -> SynFutures execution
+├── synfutures_trader.py      # SynFutures trading adapter (replaces HyperLiquidTrader)
+├── paper.py                  # Virtual perpetual account for paper trading
+├── dashboard.py              # Web dashboard (styles in static/dashboard.css|js)
+├── dashboard_auth.py         # Token check for the dashboard commands
+├── trading_agent.py          # LLM decision module with OpenRouter (openrouter/free)
+├── indicators.py             # 15m crypto technical analysis with CCXT and TA
+├── forecaster.py             # Price forecasts with Prophet
+├── sentiment.py              # Fear & Greed Index
+├── news_feed.py              # Crypto news RSS parsing
+├── whalealert.py             # Whale transaction monitoring
+├── utils.py                  # Stop loss checks and state deltas
+├── db_utils.py               # Persistent SQLite logger (trading_agent.db)
+├── test_trading.py           # Test script for orders and account checks
+├── system_prompt.txt         # System prompt for the LLM
+├── formatted_system_prompt.txt # Example of an assembled prompt
+├── account_status_old.json   # Position history cache
+├── requirements.txt          # Python dependencies
+└── .env.example              # Environment variables template
 ```
 
 ---
 
-## 🚀 Guida all'Installazione e Utilizzo
+## 🚀 Installation and usage
 
-### 1. Prerequisiti
+### 1. Requirements
 - Python 3.10+
-- Node.js 18+ (con npm o pnpm o yarn)
+- Node.js 18+ (with npm, pnpm or yarn)
 
-### 2. Configurazione Ambiente Python
-Installa le dipendenze Python:
+### 2. Python environment
+Install the Python dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Configurazione del Microservizio SynFutures
-Il microservizio gestisce la firma crittografica delle transazioni EVM e l'interazione diretta con i contratti Oyster su Base:
+### 3. SynFutures microservice
+The microservice handles the cryptographic signing of EVM transactions and the
+direct interaction with the Oyster contracts on Base:
 ```bash
 cd synfutures-service
 npm install
 npm run build
 npm start
 ```
-Il servizio partirà di default su `http://localhost:3100`.
+The service starts on `http://localhost:3100` by default.
 
-### 4. Configurazione Variabili d'Ambiente
-Copia il file `.env.example` in `.env` e inserisci le tue chiavi:
+### 4. Environment variables
+Copy `.env.example` to `.env` and fill in your keys:
 ```bash
 cp .env.example .env
 ```
-Variabili richieste:
-- `OPENROUTER_API_KEY`: La tua chiave API da [openrouter.ai](https://openrouter.ai/)
-- `SYNFUTURES_WALLET`: Indirizzo del tuo wallet (Base chain)
-- `SYNFUTURES_PRIVATE_KEY`: Chiave privata per firmare le transazioni
+Required variables:
+- `OPENROUTER_API_KEY`: your API key from [openrouter.ai](https://openrouter.ai/)
+- `SYNFUTURES_WALLET`: your wallet address (Base chain)
+- `SYNFUTURES_PRIVATE_KEY`: private key used to sign transactions
 - `SYNFUTURES_SERVICE_URL`: `http://localhost:3100` (default)
-- `SQLITE_DB_PATH`: Percorso database SQLite locale (opzionale, default: `trading_agent.db`)
-- `CMC_PRO_API_KEY`: Opzionale (il bot usa già di default l'API 100% gratuita di Alternative.me)
+- `SQLITE_DB_PATH`: local SQLite database path (optional, default: `trading_agent.db`)
+- `CMC_PRO_API_KEY`: optional (the bot uses the 100% free Alternative.me API by default)
 
-### 5. Verifica e Test
-Per testare la connessione al servizio SynFutures e verificare la risposta del trader:
+The `.env.example` starts with `PAPER_TRADING="true"`: set it to `false` only
+when you are ready to trade live.
+
+### 5. Check and test
+To test the connection to the SynFutures service and check the trader's
+response:
 ```bash
 python test_trading.py
 ```
 
-### 6. Esecuzione Live (Locale)
-Avvia il ciclo completo dell'agente:
+### 6. Local run
+Start the agent's full cycle:
 ```bash
 python main.py
 ```
 
 ---
 
-## 🚢 Distribuzione su CapRover & Docker
+## 🚢 Deploying on CapRover & Docker
 
-Il progetto è preconfigurato per il deployment istantaneo su **CapRover** o qualsiasi ambiente **Docker**:
+The project is preconfigured for instant deployment on **CapRover** or any
+**Docker** environment:
 
-### File di configurazione inclusi:
-- **`captain-definition`**: File standard per CapRover (`schemaVersion: 2` che punta a `Dockerfile`).
-- **`Dockerfile`**: Immagine unificata multi-ambiente con Python 3.11 + Node.js 20.
-- **`start.sh`**: Avvia automaticamente `synfutures-service` in background, attende che sia pronto, e fa girare `main.py` ad intervalli regolari (default: ogni 900 secondi / 15 minuti).
-- **`docker-compose.yml`**: Per esecuzione o test rapido in locale.
+### Included configuration files
+- **`captain-definition`**: standard CapRover file (`schemaVersion: 2` pointing to the `Dockerfile`).
+- **`Dockerfile`**: unified multi-runtime image with Python 3.11 + Node.js 20.
+- **`start.sh`**: starts `synfutures-service` in the background, waits until it
+  is ready, and runs `main.py` at regular intervals (default: every 900
+  seconds / 15 minutes).
+- **`docker-compose.yml`**: for quick local runs or tests.
 
-### Deployment su CapRover:
-1. Nella dashboard di CapRover, crea una nuova App (es. `intelligent-trading-agent`).
-2. Nella scheda **App Configs**:
-   - Inserisci le tue variabili d'ambiente (Environment Variables):
+### Deploying on CapRover
+1. In the CapRover dashboard, create a new app (e.g. `intelligent-trading-agent`).
+2. In the **App Configs** tab:
+   - Add your environment variables:
      - `OPENROUTER_API_KEY`
      - `SYNFUTURES_WALLET`
      - `SYNFUTURES_PRIVATE_KEY`
      - `SYNFUTURES_SERVICE_URL=http://localhost:3100`
-     - `INTERVAL_SECONDS=900` (intervallo di trading, 15 minuti)
+     - `INTERVAL_SECONDS=900` (trading interval, 15 minutes)
      - `SQLITE_DB_PATH=/app/data/trading_agent.db`
-   - Configura un volume persistente per salvare il database:
+   - Configure a persistent volume to keep the database:
      - **Path in Container**: `/app/data`
      - **Label**: `trading-agent-data`
-3. Nella scheda **Deployment**:
-   - **Metodo GitHub**: Inserisci il repository `https://github.com/scobru/intelligent-trading-agent` e il branch `main`.
-   - Oppure tramite CapRover CLI: `caprover deploy` dal tuo terminale.
-4. CapRover costruirà automaticamente l'immagine e avvierà il container!
+3. In the **Deployment** tab:
+   - **GitHub method**: enter the repository
+     `https://github.com/scobru/intelligent-trading-agent-perp` and the `main` branch.
+   - Or with the CapRover CLI: `caprover deploy` from your terminal.
+4. CapRover builds the image and starts the container automatically.
 
-### Avvio locale con Docker Compose:
+### Local run with Docker Compose
 ```bash
 docker compose up -d --build
 ```
-Visualizza i log del bot:
+Follow the bot's logs:
 ```bash
 docker compose logs -f
 ```
 
 ---
 
-## 🛡️ Gestione del Rischio
-- Ogni operazione include un calcolo dinamico del margine in base alla frazione di capitale allocata (`target_portion_of_balance`).
-- Verifica automatica del notional minimo richiesto su Base (~$70) prima dell'invio a SynFutures.
-- Solo coppie esistenti: a ogni ciclo i ticker di `TRADING_TICKERS` (default `BTC,ETH`) vengono confrontati con gli strumenti perpetual di SynFutures (`/instruments`); quelli assenti sono esclusi da analisi, prompt e ordini, e un segnale su una coppia non quotata diventa `hold`/`rejected` invece di un errore.
-- Tracciamento locale degli Stop Loss tramite `utils.py` e `account_status_old.json`.
+## 🛡️ Risk management
+- Every operation includes a dynamic margin calculation based on the share of
+  capital allocated (`target_portion_of_balance`).
+- Automatic check of the minimum notional required on Base (~$70) before
+  sending to SynFutures.
+- Existing pairs only: every cycle the tickers in `TRADING_TICKERS` (default
+  `BTC,ETH`) are matched against the SynFutures perpetual instruments
+  (`/instruments`); missing ones are excluded from analysis, prompt and orders,
+  and a signal on an unlisted pair becomes `hold`/`rejected` instead of an
+  error.
+- Local stop loss tracking through `utils.py` and `account_status_old.json`.
 
 ---
 
 ## 📝 Paper trading
 
-Con `PAPER_TRADING=true` l'agente opera su un **conto perpetual virtuale**
-(`PAPER_START_USDC`, default $1000) con **prezzi di mercato reali**: gli ordini
-vengono eseguiti davvero contro il collaterale finto, quindi si vedono P&L,
-stop loss e liquidazioni lavorare senza capitale su SynFutures.
+With `PAPER_TRADING=true` the agent trades on a **virtual perpetual account**
+(`PAPER_START_USDC`, default $1000) with **real market prices**: orders are
+actually executed against the fake collateral, so you can watch P&L, stop
+losses and liquidations work without capital on SynFutures.
 
-| Reale | Simulato |
+| Real | Simulated |
 |-------|----------|
-| prezzi (Binance, fallback Kraken), decisioni del modello, dimensionamento e nozionale minimo | collaterale sul Gate, riempimento (± `PAPER_SLIPPAGE_BPS`), fee (`PAPER_FEE_BPS`), stop loss e liquidazioni controllati a ogni ciclo |
+| prices (Binance, Kraken fallback), model decisions, sizing and minimum notional | Gate collateral, fills (± `PAPER_SLIPPAGE_BPS`), fees (`PAPER_FEE_BPS`), stop losses and liquidations checked every cycle |
 
-In paper non servono wallet, chiave privata né il microservizio
-`synfutures-service` (`start.sh` non lo avvia). Funding rate e prezzo
-dell'oracolo SynFutures non sono simulati. Lo stato vive in
-`paper_account.json` accanto al database (sul volume persistente): per
-ricominciare da zero cancellalo.
+In paper mode you need no wallet, private key or `synfutures-service`
+microservice (`start.sh` does not start it). SynFutures funding rates and
+oracle price are not simulated. The state lives in `paper_account.json` next to
+the database (on the persistent volume): delete it to start from scratch.
 
 ---
 
 ## 🖥️ Dashboard
 
-Su `http://localhost:3000`. Il pulsante "Esegui ciclo ora" è disattivato
-finché non imposti `DASHBOARD_RUN_TOKEN`: la dashboard non ha login e un ciclo
-può firmare transazioni. Il browser chiede il token una volta e lo ricorda.
+At `http://localhost:3000`. The "Run cycle now" button stays disabled until you
+set `DASHBOARD_RUN_TOKEN`: the dashboard has no login and a cycle can sign
+transactions. The browser asks for the token once and remembers it.
 
-### Dashboard coerente fra i tre agenti
+### A consistent dashboard across the suite
 
-Le dashboard di `intelligent-trading-agent`, `-degen` e `-yield` condividono lo
-stesso design system: `static/dashboard.css` e `static/dashboard.js` sono
-**identici nei tre repository** (se li modifichi, copiali negli altri due).
-Ogni pagina ha la stessa struttura: header con badge di modalità
-(`LIVE` / `PAPER` / `DRY-RUN`), pannello paper trading, KPI, andamento del
-capitale, posizioni e ultima decisione AI, sezioni specifiche del bot, storico
-operazioni ed errori. Cambia solo il colore d'accento (blu, arancio, verde)
-e l'icona.
+All the agents in the suite share the same design system:
+`static/dashboard.css` and `static/dashboard.js` are **identical in every
+repository** (if you change them, copy them to the others). Every page has the
+same structure: header with a mode badge (`LIVE` / `PAPER` / `DRY-RUN`), paper
+trading panel, KPIs, equity curve, positions and last AI decision, bot-specific
+sections, operation history and errors. Only the accent color and the icon
+change.
 
+#### Wallet and gas
 
-#### Wallet e gas
-
-Sotto l'header, fuori dal paper trading, la dashboard mostra il wallet del
-bot: ETH per il gas (con il controvalore), USDC liberi, indirizzo con link a
-Basescan e uno stato: **OK**, **IN ESAURIMENTO** (sotto `GAS_WARN_ETH`) o
-**RICARICA ORA** (sotto la riserva minima). Lo stesso avviso compare nel
-report Telegram del ciclo.
+Below the header, outside paper trading, the dashboard shows the bot's wallet:
+ETH for gas (with its dollar value), free USDC, address with a Basescan link
+and a status: **OK**, **RUNNING LOW** (below `GAS_WARN_ETH`) or **TOP UP NOW**
+(below the minimum reserve). The same warning appears in the cycle's Telegram
+report.
 
 ---
 
+## 🎨 Project icon
 
-## 🎨 Icona del progetto
+The assets are in `static/`:
 
-Gli asset sono in `static/`:
-
-| File | Uso |
+| File | Use |
 |------|-----|
-| `icon.svg` | icona principale (vettoriale), logo in dashboard e README |
-| `icon-small.svg` | variante semplificata, sorgente delle dimensioni piccole |
-| `favicon.ico` | favicon multi-risoluzione (16, 32, 48 px) |
-| `icon-192.png`, `icon-512.png` | PWA e condivisioni |
-| `apple-touch-icon.png` | schermata home iOS |
-| `site.webmanifest` | manifest PWA |
-| `dashboard.css`, `dashboard.js` | design system condiviso con i bot degen e yield |
+| `icon.svg` | main icon (vector), logo in the dashboard and README |
+| `icon-small.svg` | simplified variant, source for the small sizes |
+| `favicon.ico` | multi-resolution favicon (16, 32, 48 px) |
+| `icon-192.png`, `icon-512.png` | PWA and sharing |
+| `apple-touch-icon.png` | iOS home screen |
+| `site.webmanifest` | PWA manifest |
+| `dashboard.css`, `dashboard.js` | design system shared with the sibling bots |
 
-Le sorgenti sono gli SVG; i raster si rigenerano con `python tools/generate_icons.py`
-(richiede `pip install cairosvg pillow`, dipendenze di solo sviluppo).
+The sources are the SVGs; the rasters are regenerated with
+`python tools/generate_icons.py` (requires `pip install cairosvg pillow`,
+development-only dependencies).
 
 ---
 
-## ⚠️ Avvertenza
+## ⚠️ Disclaimer
 
-Questo software è sperimentale ed è fornito "così com'è", senza garanzie di alcun tipo
-(vedi la licenza MIT). Non è consulenza finanziaria né un invito a investire.
+This software is experimental and provided "as is", without warranty of any
+kind (see the MIT license). It is not financial advice nor an invitation to
+invest.
 
-- **Puoi perdere denaro.** Bug, decisioni sbagliate del modello, slippage, exploit dei protocolli,
-  oracoli manipolati e liquidazioni possono far perdere in parte o del tutto il capitale.
-- **Le decisioni le prende un LLM.** Può sbagliare o comportarsi in modo imprevedibile: i limiti
-  dell'esecutore riducono il danno, non lo azzerano. I rendimenti passati, anche in paper, non
-  garantiscono quelli futuri.
-- **Parti in paper o dry-run.** In live usa un wallet dedicato al bot, con importi che puoi
-  permetterti di perdere, e non riutilizzare quella chiave privata altrove.
-- **Proteggi le chiavi.** La chiave privata va solo nelle variabili d'ambiente del deploy: non
-  committarla mai. Senza `DASHBOARD_RUN_TOKEN` i comandi della dashboard restano disattivati:
-  impostalo con un valore lungo e casuale prima di esporla su Internet.
-- **Leggi e tasse.** Sei responsabile del rispetto delle norme e degli obblighi fiscali del tuo paese.
-- **Ordini perp.** Qui `DRY_RUN` blocca solo gli swap on-chain (refuel, deposito sul Gate): gli ordini su SynFutures partono appena il microservizio ha la chiave. Per provare usa `PAPER_TRADING=true` (il `.env.example` parte così). Con la leva le perdite possono superare rapidamente il margine.
+- **You can lose money.** Bugs, wrong model decisions, slippage, protocol
+  exploits, manipulated oracles and liquidations can cause the loss of some or
+  all of your capital.
+- **Decisions are made by an LLM.** It can be wrong or behave unpredictably:
+  the executor's limits reduce the damage, they do not eliminate it. Past
+  results, paper ones included, do not guarantee future ones.
+- **Start with paper or dry-run.** When live, use a wallet dedicated to the
+  bot, with amounts you can afford to lose, and never reuse that private key
+  elsewhere.
+- **Protect your keys.** The private key belongs only in the deployment's
+  environment variables: never commit it. Without `DASHBOARD_RUN_TOKEN` the
+  dashboard commands stay disabled: set it to a long random value before
+  exposing the dashboard to the Internet.
+- **Laws and taxes.** You are responsible for complying with the rules and tax
+  obligations of your country.
+- **Perp orders.** Here `DRY_RUN` only blocks on-chain swaps (refuel, Gate
+  deposit): orders on SynFutures go out as soon as the microservice has the
+  key. To try it out use `PAPER_TRADING=true` (the `.env.example` starts that
+  way). With leverage, losses can quickly exceed the margin.
 
-## 📜 Licenza
-Distribuito sotto licenza MIT. Ispirato ad Alpha Arena e Rizzo AI Academy.
+## 📜 License
+Released under the MIT license. Inspired by Alpha Arena and Rizzo AI Academy.
