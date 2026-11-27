@@ -10,11 +10,13 @@ SERVICE_PID=""
 if [ "${PAPER_TRADING:-false}" = "true" ]; then
     echo "📝 PAPER attivo: conto virtuale, synfutures-service non avviato."
 else
-    # 1. Start SynFutures Node.js Microservice in background on port 3100
-    echo "[1/4] Starting SynFutures Node.js microservice on port 3100..."
+    # 1. Start SynFutures Node.js Microservice in background
+    # the multi-agent runner gives each agent its own port via SYNFUTURES_SERVICE_URL
+    SF_URL="${SYNFUTURES_SERVICE_URL:-http://localhost:3100}"
+    export SYNFUTURES_PORT="${SYNFUTURES_PORT:-${SF_URL##*:}}"
+    echo "[1/4] Starting SynFutures Node.js microservice on port $SYNFUTURES_PORT..."
     cd /app/synfutures-service
-    export SYNFUTURES_PORT=3100
-    export SYNFUTURES_SERVICE_URL="http://localhost:3100"
+    export SYNFUTURES_SERVICE_URL="$SF_URL"
     if [ -d "dist" ]; then
         node dist/index.js &
     else
@@ -24,10 +26,10 @@ else
     cd /app
 
     # 2. Wait for synfutures-service /health endpoint
-    echo "[2/4] Waiting for SynFutures microservice on http://localhost:3100/health..."
+    echo "[2/4] Waiting for SynFutures microservice on http://localhost:$SYNFUTURES_PORT/health..."
     MAX_TRIES=30
     COUNT=0
-    until curl -s http://localhost:3100/health > /dev/null 2>&1 || [ $COUNT -eq $MAX_TRIES ]; do
+    until curl -s http://localhost:$SYNFUTURES_PORT/health > /dev/null 2>&1 || [ $COUNT -eq $MAX_TRIES ]; do
         sleep 1
         COUNT=$((COUNT + 1))
     done
